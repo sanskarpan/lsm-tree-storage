@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "lsm-backend"
+    authorization:
+      type: Bearer
+      credentials: "metrics-token"
+    static_configs:
+      - targets: ["backend:8080"]
