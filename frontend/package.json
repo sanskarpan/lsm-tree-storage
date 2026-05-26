@@ -1,0 +1,27 @@
+{
+  "name": "frontend",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build:client": "vite build --config vite.config.ts",
+    "dev:client": "vite --config vite.config.ts",
+    "typecheck": "tsc --noEmit",
+    "start": "bun run index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "vite": "^8.0.14"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "elysia": "^1.4.28",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
+  }
+}
