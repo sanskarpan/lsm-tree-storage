@@ -1,0 +1,16 @@
+data_dir: "./data"
+wal_dir: ""          # defaults to data_dir if empty
+mem_table_size: 67108864   # 64MB
+block_size: 4096           # 4KB
+bloom_bits_per_key: 10
+sst_max_size: 67108864     # 64MB per SSTable
+sync_wal: true
+max_open_files: 1000
+block_cache_size: 134217728 # 128MB
+max_levels: 7
+level_size_multiplier: 10
+level0_file_num_compaction_trigger: 4
+level0_stop_writes_trigger: 12
+max_immutable_memtables: 2
+compaction_style: "leveled"  # leveled | size-tiered | time-window
+time_window_size: "1h"
