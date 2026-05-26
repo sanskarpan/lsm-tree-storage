@@ -1,0 +1,28 @@
+FROM golang:1.26.3-alpine AS build
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/lsm-server ./cmd/server
+
+FROM alpine:3.22
+
+RUN addgroup -S lsm && adduser -S -G lsm lsm
+WORKDIR /app
+
+COPY --from=build /out/lsm-server /usr/local/bin/lsm-server
+COPY config.yaml /app/config.yaml
+
+RUN mkdir -p /app/data && chown -R lsm:lsm /app
+
+USER lsm
+
+ENV ADDR=0.0.0.0:8080
+ENV CONFIG_PATH=/app/config.yaml
+ENV DATA_DIR=/app/data
+
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/local/bin/lsm-server"]
