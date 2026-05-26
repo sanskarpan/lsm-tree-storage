@@ -1,0 +1,11 @@
+.DS_Store
+data/
+backups-test/
+frontend/dist/
+frontend/node_modules/
+loadtest
+*.log
+*.sst
+*.tar.gz
+*.tar.gz.sha256
+*.tmp
