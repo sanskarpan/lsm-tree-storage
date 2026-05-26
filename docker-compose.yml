@@ -1,0 +1,64 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    environment:
+      ADDR: 0.0.0.0:8080
+      DATA_DIR: /app/data
+      CONFIG_PATH: /app/config.yaml
+      API_TOKEN: change-me
+      METRICS_TOKEN: metrics-token
+      ALLOWED_ORIGINS: http://frontend:3001,http://127.0.0.1:3001
+      LOG_FORMAT: json
+    volumes:
+      - lsm_data:/app/data
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3001
+      BACKEND_URL: http://backend:8080
+      BACKEND_WS_URL: ws://backend:8080/ws
+      API_TOKEN: change-me
+      BFF_BASIC_AUTH: viewer:panel
+      ALLOW_REMOTE_BFF: "1"
+      SKIP_CLIENT_BUILD: "1"
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3001:3001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:9090:9090"
+    restart: unless-stopped
+
+volumes:
+  lsm_data:
