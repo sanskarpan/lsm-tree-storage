@@ -3,6 +3,7 @@ data/
 backups-test/
 frontend/dist/
 frontend/node_modules/
+frontend/.cursor/
 loadtest
 *.log
 *.sst
