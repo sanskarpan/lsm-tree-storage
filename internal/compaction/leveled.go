@@ -6,11 +6,13 @@ package compaction
 import (
 	"bytes"
 
+	"lsm-engine/internal/manifest"
 	"lsm-engine/internal/sstable"
 )
 
-// MaxLevels is the default maximum number of LSM levels for compaction planning.
-const MaxLevels = 7
+// MaxLevels is re-exported from manifest so callers in this package can
+// range over the level array without importing manifest directly.
+const MaxLevels = manifest.MaxLevels
 
 // LeveledPickInputs returns the set of SSTable metas to compact for a
 // leveled compaction starting at inputLevel.
@@ -65,8 +67,14 @@ func LeveledPickInputs(
 		}
 	}
 
-	// Deduplicate
-	seen := make(map[uint64]bool)
+	return DedupeByFileID(inputs)
+}
+
+// DedupeByFileID returns a slice with the same elements as inputs but with
+// any duplicates (by SSTableMeta.FileID) removed. The first occurrence of
+// each FileID is kept. The input slice is modified in place.
+func DedupeByFileID(inputs []*sstable.SSTableMeta) []*sstable.SSTableMeta {
+	seen := make(map[uint64]bool, len(inputs))
 	unique := inputs[:0]
 	for _, m := range inputs {
 		if !seen[m.FileID] {

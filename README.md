@@ -186,9 +186,8 @@ lsm-engine/
 │   │   ├── reader.go               # WAL reader: crash recovery, CRC verification
 │   │   └── record.go               # Record types + entry binary encoding
 │   ├── memtable/
-│   │   ├── skiplist.go             # Skip list: MaxLevel=12, P=0.25
-│   │   ├── memtable.go             # MemTable: Put/Delete/Get/Iterator
-│   │   └── iterator.go             # MemTable iterator for flush
+│   │   ├── skiplist.go             # Skip list: MaxLevel=12, P=0.25 + SkipListIterator
+│   │   └── memtable.go             # MemTable: Put/Delete/Get/Iterator interface
 │   ├── sstable/
 │   │   ├── builder.go              # SSTableBuilder: data blocks, index, filter, footer
 │   │   ├── reader.go               # SSTableReader: Get, NewIterator, index loading

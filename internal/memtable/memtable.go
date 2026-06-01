@@ -84,7 +84,7 @@ func (m *MemTable) Get(key []byte) ([]byte, bool, bool) {
 	if node.key.Type == sstable.TypeDeletion {
 		return nil, true, true
 	}
-	return node.value, true, false
+	return cloneBytes(node.value), true, false
 }
 
 // GetAtSeqNo returns the value for key at a specific sequence number (snapshot read)
@@ -103,7 +103,14 @@ func (m *MemTable) GetAtSeqNo(key []byte, seqNo uint64) ([]byte, bool, bool) {
 	if node.key.Type == sstable.TypeDeletion {
 		return nil, true, true
 	}
-	return node.value, true, false
+	return cloneBytes(node.value), true, false
+}
+
+func cloneBytes(b []byte) []byte {
+	if b == nil {
+		return nil
+	}
+	return append([]byte(nil), b...)
 }
 
 // ApproximateSize returns the approximate memory usage in bytes

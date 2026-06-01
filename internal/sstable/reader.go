@@ -145,13 +145,18 @@ func (r *SSTableReader) findDataBlock(userKey []byte) (BlockHandle, bool) {
 	return BlockHandle{}, false
 }
 
-// loadBlock fetches a block from cache or reads from disk
+// loadBlock fetches a block from cache or reads from disk.
+// The returned *Block always owns its backing bytes — the block cache may
+// reuse or evict the underlying buffer at any time, so callers (in particular
+// BlockIterator) must be able to rely on the slice's stability for the
+// lifetime of the block.
 func (r *SSTableReader) loadBlock(handle BlockHandle) (*Block, error) {
 	cacheKey := cache.CacheKey{FileID: r.meta.FileID, Offset: handle.Offset}
 
 	if r.blockCache != nil {
 		if data, ok := r.blockCache.Get(cacheKey); ok {
-			return DecodeBlock(data)
+			owned := append([]byte(nil), data...)
+			return DecodeBlock(owned)
 		}
 	}
 

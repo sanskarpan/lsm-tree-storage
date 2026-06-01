@@ -123,14 +123,25 @@ func (it *SkipListIterator) Valid() bool {
 	return it.current != nil
 }
 
-// Key returns the InternalKey at the current iterator position.
+// Key returns a copy of the InternalKey at the current iterator position.
+// The UserKey slice is defensively copied so callers can mutate it without
+// corrupting skiplist state.
 func (it *SkipListIterator) Key() sstable.InternalKey {
-	return it.current.key
+	return sstable.InternalKey{
+		UserKey: append([]byte(nil), it.current.key.UserKey...),
+		SeqNo:   it.current.key.SeqNo,
+		Type:    it.current.key.Type,
+	}
 }
 
-// Value returns the value at the current iterator position.
+// Value returns a copy of the value at the current iterator position.
+// The backing slice is defensively copied so callers can mutate the result
+// without corrupting the in-memory key.
 func (it *SkipListIterator) Value() []byte {
-	return it.current.value
+	if it.current.value == nil {
+		return nil
+	}
+	return append([]byte(nil), it.current.value...)
 }
 
 // Next advances the iterator to the next node in ascending key order.

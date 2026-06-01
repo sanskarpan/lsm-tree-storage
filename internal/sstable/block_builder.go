@@ -1,10 +1,34 @@
 // Package sstable — see format.go for the package doc.
 package sstable
 
-import "encoding/binary"
+import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
+)
 
 // RestartInterval is the number of entries between full-key restart points in a data block.
 const RestartInterval = 16
+
+// keysAreInOrder reports whether encodedNext may follow encodedPrev in a block.
+// The two accepted orderings are:
+//   - InternalKey.Less order: UserKey ASC, SeqNo DESC. The natural flush /
+//     compaction order. For different UserKeys this matches raw byte order.
+//   - Raw byte ASC: UserKey ASC, SeqNo ASC. The fallback used by callers that
+//     feed keys in lexicographic byte order (e.g., some external bulk loads).
+//
+// The same-UserKey case is intentionally permissive because both directions
+// produce a self-consistent prefix-compressed block.
+func keysAreInOrder(encodedPrev, encodedNext []byte, nextKey InternalKey) bool {
+	if bytes.Equal(encodedPrev, encodedNext) {
+		return false
+	}
+	prev := decodeKey(encodedPrev)
+	if !bytes.Equal(prev.UserKey, nextKey.UserKey) {
+		return bytes.Compare(prev.UserKey, nextKey.UserKey) < 0
+	}
+	return true
+}
 
 // BlockBuilder builds a data block with prefix compression and restart points
 type BlockBuilder struct {
@@ -23,9 +47,17 @@ func NewBlockBuilder(restartInterval int) *BlockBuilder {
 	return &BlockBuilder{restartInterval: restartInterval}
 }
 
-// Add appends a key-value pair with prefix compression
+// Add appends a key-value pair with prefix compression.
+// Callers must feed keys in InternalKey.Less order (UserKey ASC, then SeqNo DESC).
+// For the same UserKey the raw-byte and Less orderings diverge; the prefix
+// compression stays correct in both directions, so this builder accepts either.
 func (b *BlockBuilder) Add(key InternalKey, value []byte) {
 	encodedKey := encodeKey(key)
+
+	if b.lastKey != nil && !keysAreInOrder(b.lastKey, encodedKey, key) {
+		panic(fmt.Sprintf("sstable: BlockBuilder.Add received out-of-order key %q (UserKey=%q, SeqNo=%d, Type=%d) after %q",
+			encodedKey, key.UserKey, key.SeqNo, key.Type, b.lastKey))
+	}
 
 	shared := 0
 	if b.counter < b.restartInterval {
@@ -119,11 +151,24 @@ func NewBlockIterator(block *Block) *BlockIterator {
 // Valid reports whether the iterator is positioned at a valid entry.
 func (it *BlockIterator) Valid() bool { return it.valid }
 
-// Key returns the InternalKey at the current iterator position.
-func (it *BlockIterator) Key() InternalKey { return it.key }
+// Key returns a copy of the InternalKey at the current iterator position.
+func (it *BlockIterator) Key() InternalKey {
+	return InternalKey{
+		UserKey: append([]byte(nil), it.key.UserKey...),
+		SeqNo:   it.key.SeqNo,
+		Type:    it.key.Type,
+	}
+}
 
-// Value returns the value bytes at the current iterator position.
-func (it *BlockIterator) Value() []byte { return it.value }
+// Value returns a copy of the value bytes at the current iterator position.
+// The slice is defensively copied because the underlying block buffer may
+// be reused by the block cache after the iterator's parent block is dropped.
+func (it *BlockIterator) Value() []byte {
+	if it.value == nil {
+		return nil
+	}
+	return append([]byte(nil), it.value...)
+}
 
 func (it *BlockIterator) Next() {
 	if it.pos >= len(it.block.data) {

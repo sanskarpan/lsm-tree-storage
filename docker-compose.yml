@@ -7,8 +7,8 @@ services:
       ADDR: 0.0.0.0:8080
       DATA_DIR: /app/data
       CONFIG_PATH: /app/config.yaml
-      API_TOKEN: change-me
-      METRICS_TOKEN: metrics-token
+      API_TOKEN: ${API_TOKEN:?set API_TOKEN in .env or override here}
+      METRICS_TOKEN: ${METRICS_TOKEN:?set METRICS_TOKEN in .env or override here}
       ALLOWED_ORIGINS: http://frontend:3001,http://127.0.0.1:3001
       LOG_FORMAT: json
     volumes:
@@ -31,8 +31,8 @@ services:
       PORT: 3001
       BACKEND_URL: http://backend:8080
       BACKEND_WS_URL: ws://backend:8080/ws
-      API_TOKEN: change-me
-      BFF_BASIC_AUTH: viewer:panel
+      API_TOKEN: ${API_TOKEN:?set API_TOKEN in .env or override here}
+      BFF_BASIC_AUTH: ${BFF_BASIC_AUTH:?set BFF_BASIC_AUTH in .env or override here}
       ALLOW_REMOTE_BFF: "1"
       SKIP_CLIENT_BUILD: "1"
     depends_on:

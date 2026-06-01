@@ -183,3 +183,27 @@ func TestSSTable_PreservesSequenceNumbersForSnapshotReads(t *testing.T) {
 	assert.True(t, found)
 	assert.Equal(t, []byte("v5"), val)
 }
+
+func TestBlockBuilder_PanicsOnOutOfOrderKey(t *testing.T) {
+	b := NewBlockBuilder(RestartInterval)
+	b.Add(InternalKey{UserKey: []byte("zzz"), SeqNo: 1, Type: TypeValue}, []byte("v"))
+	require.Panics(t, func() {
+		b.Add(InternalKey{UserKey: []byte("aaa"), SeqNo: 1, Type: TypeValue}, []byte("v"))
+	})
+}
+
+func TestBlockBuilder_AllowsSameUserKeyBothSeqNoDirections(t *testing.T) {
+	b := NewBlockBuilder(RestartInterval)
+	require.NotPanics(t, func() {
+		b.Add(InternalKey{UserKey: []byte("k"), SeqNo: 5, Type: TypeValue}, []byte("v"))
+		b.Add(InternalKey{UserKey: []byte("k"), SeqNo: 3, Type: TypeValue}, []byte("v"))
+		b.Add(InternalKey{UserKey: []byte("k"), SeqNo: 1, Type: TypeValue}, []byte("v"))
+	})
+	b2 := NewBlockBuilder(RestartInterval)
+	require.NotPanics(t, func() {
+		b2.Add(InternalKey{UserKey: []byte("k"), SeqNo: 1, Type: TypeValue}, []byte("v"))
+		b2.Add(InternalKey{UserKey: []byte("k"), SeqNo: 3, Type: TypeValue}, []byte("v"))
+		b2.Add(InternalKey{UserKey: []byte("k"), SeqNo: 5, Type: TypeValue}, []byte("v"))
+	})
+}
+

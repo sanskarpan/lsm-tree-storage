@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -29,6 +30,7 @@ const (
 	maxScanLimit         = 5000
 	maxBenchKeys         = 1_000_000
 	maxValueSizeBytes    = 1 << 20
+	maxKeySizeBytes      = 8 << 10
 )
 
 // HandlerOptions configures request policy for the REST gateway.
@@ -202,10 +204,12 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 }
 
 func corsHeaders(w http.ResponseWriter, origin string) {
-	w.Header().Set("Vary", "Origin")
-	w.Header().Set("Access-Control-Allow-Origin", origin)
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Read-Consistency")
+	if origin != "" {
+		w.Header().Set("Vary", "Origin")
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Read-Consistency, X-Request-ID")
+	}
 }
 
 func (h *Handler) applyCORS(w http.ResponseWriter, r *http.Request) bool {
@@ -213,7 +217,7 @@ func (h *Handler) applyCORS(w http.ResponseWriter, r *http.Request) bool {
 	if origin == "" {
 		return true
 	}
-	if !originAllowed(origin, requestScheme(r), r.Host, h.allowedOrigins) {
+	if !originAllowedWithAuth(origin, requestScheme(r), r.Host, h.allowedOrigins, h.apiToken != "") {
 		http.Error(w, "origin not allowed", http.StatusForbidden)
 		return false
 	}
@@ -267,8 +271,7 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst interface{}, lim
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return false
 	}
-	var trailing struct{}
-	if err := dec.Decode(&trailing); err != io.EOF {
+	if dec.More() {
 		http.Error(w, "request body must contain a single JSON object", http.StatusBadRequest)
 		return false
 	}
@@ -304,6 +307,20 @@ func originAllowed(origin, requestScheme, requestHost string, allowedOrigins []s
 	return false
 }
 
+// originAllowedWithAuth is used when the request also requires bearer-token
+// auth. In that mode a wildcard origin is refused to avoid CSRF — a browser
+// from any origin could otherwise carry the user's bearer token cross-site.
+func originAllowedWithAuth(origin, requestScheme, requestHost string, allowedOrigins []string, requireAuth bool) bool {
+	if requireAuth {
+		for _, allowed := range allowedOrigins {
+			if strings.TrimSpace(allowed) == "*" {
+				return false
+			}
+		}
+	}
+	return originAllowed(origin, requestScheme, requestHost, allowedOrigins)
+}
+
 func parseReadConsistency(r *http.Request) (cluster.ReadConsistency, error) {
 	mode := strings.TrimSpace(r.URL.Query().Get("consistency"))
 	if mode == "" {
@@ -328,6 +345,10 @@ func (h *Handler) recordWALEvent(evt events.Event) {
 		entry.SeqNo = seq
 	} else if seq, ok := evt.Extra["seq"].(uint64); ok {
 		entry.SeqNo = seq
+	} else if f, ok := evt.Extra["seq_no"].(float64); ok {
+		entry.SeqNo = uint64(f)
+	} else if f, ok := evt.Extra["seq"].(float64); ok {
+		entry.SeqNo = uint64(f)
 	}
 	if key, ok := evt.Extra["key"].(string); ok {
 		entry.Key = key
@@ -340,7 +361,7 @@ func (h *Handler) recordWALEvent(evt events.Event) {
 	defer h.walMu.Unlock()
 	h.recentWAL = append(h.recentWAL, entry)
 	if len(h.recentWAL) > 256 {
-		h.recentWAL = append([]walEventSnapshot(nil), h.recentWAL[len(h.recentWAL)-256:]...)
+		h.recentWAL = append(h.recentWAL[:0], h.recentWAL[len(h.recentWAL)-256:]...)
 	}
 }
 
@@ -372,6 +393,10 @@ func (h *Handler) handlePut(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Key == "" {
 		http.Error(w, "key required", http.StatusBadRequest)
+		return
+	}
+	if len(req.Key) > maxKeySizeBytes {
+		http.Error(w, fmt.Sprintf("key too large (max %d bytes)", maxKeySizeBytes), http.StatusBadRequest)
 		return
 	}
 	if err := h.node.Put(h.requestContext(r), []byte(req.Key), []byte(req.Value)); err != nil {
@@ -447,6 +472,10 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	key := r.URL.Query().Get("key")
 	if key == "" {
 		http.Error(w, "key required", http.StatusBadRequest)
+		return
+	}
+	if len(key) > maxKeySizeBytes {
+		http.Error(w, fmt.Sprintf("key too large (max %d bytes)", maxKeySizeBytes), http.StatusBadRequest)
 		return
 	}
 	if err := h.node.Delete(h.requestContext(r), []byte(key)); err != nil {
@@ -710,6 +739,10 @@ func (h *Handler) handleBatch(w http.ResponseWriter, r *http.Request) {
 	for _, e := range req.Entries {
 		if e.Key == "" {
 			http.Error(w, "entries[].key required", http.StatusBadRequest)
+			return
+		}
+		if len(e.Key) > maxKeySizeBytes {
+			http.Error(w, fmt.Sprintf("entries[].key too large (max %d bytes)", maxKeySizeBytes), http.StatusBadRequest)
 			return
 		}
 		if e.Delete {

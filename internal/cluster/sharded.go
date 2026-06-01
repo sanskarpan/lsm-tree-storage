@@ -2,6 +2,8 @@ package cluster
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -11,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"lsm-engine/internal/engine"
@@ -26,6 +29,7 @@ type ShardedNode struct {
 	txJournal     *txJournalStore
 	rebalanceStop chan struct{}
 	rebalanceWG   sync.WaitGroup
+	txCounter     atomic.Uint64
 }
 
 func OpenShardedNode(cfg Config, baseEngineCfg engine.Config) (*ShardedNode, error) {
@@ -485,8 +489,10 @@ func (n *ShardedNode) SetCompactionStyle(ctx context.Context, style string) {
 }
 
 func (n *ShardedNode) Close() error {
+	n.mu.Lock()
 	stop := n.rebalanceStop
 	n.rebalanceStop = nil
+	n.mu.Unlock()
 	if stop != nil {
 		close(stop)
 		n.rebalanceWG.Wait()
@@ -503,7 +509,7 @@ func (n *ShardedNode) Close() error {
 }
 
 func (n *ShardedNode) writeCrossShardBatch(ctx context.Context, shardBatches map[int]*engine.WriteBatch) error {
-	txID := fmt.Sprintf("%d-%d", time.Now().UnixNano(), len(shardBatches))
+	txID := n.newTxID()
 	record, applied, err := n.prepareCrossShardTransaction(ctx, txID, shardBatches)
 	if err != nil {
 		return err
@@ -582,6 +588,14 @@ func (n *ShardedNode) applyCrossShardTransaction(ctx context.Context, record txJ
 		applied = append(applied, shardID)
 	}
 	return nil
+}
+
+func (n *ShardedNode) newTxID() string {
+	var rnd [8]byte
+	if _, err := rand.Read(rnd[:]); err != nil {
+		return fmt.Sprintf("tx-%d-%d", time.Now().UnixNano(), n.txCounter.Add(1))
+	}
+	return fmt.Sprintf("tx-%s-%d", hex.EncodeToString(rnd[:]), n.txCounter.Add(1))
 }
 
 func (n *ShardedNode) rollbackCrossShardTransaction(ctx context.Context, record txJournalEntry, applied []int) error {
@@ -875,7 +889,9 @@ func (n *ShardedNode) migrateSlot(ctx context.Context, plan *routingPlan, slot, 
 			_ = n.persistRoutingPlan(context.Background(), revert)
 			return err
 		}
-		time.Sleep(100 * time.Millisecond)
+		if err := sleepCtx(ctx, 100*time.Millisecond); err != nil {
+			return err
+		}
 	}
 	final := current.clone()
 	final.Version++
@@ -889,7 +905,9 @@ func (n *ShardedNode) migrateSlot(ctx context.Context, plan *routingPlan, slot, 
 		_ = n.persistRoutingPlan(context.Background(), revert)
 		return err
 	}
-	time.Sleep(250 * time.Millisecond)
+	if err := sleepCtx(ctx, 250*time.Millisecond); err != nil {
+		return err
+	}
 	if err := n.copySlotKeys(ctx, plan, slot, source, target); err != nil {
 		return err
 	}
@@ -1088,6 +1106,20 @@ func maxUint64(a, b uint64) uint64 {
 		return a
 	}
 	return b
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 func toInt(v interface{}) int {

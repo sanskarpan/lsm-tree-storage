@@ -168,15 +168,7 @@ func (e *LSMEngine) compactLevel(version *manifest.Version, level int) error {
 	}
 
 	// Deduplicate
-	seen := make(map[uint64]bool)
-	unique := inputs[:0]
-	for _, m := range inputs {
-		if !seen[m.FileID] {
-			seen[m.FileID] = true
-			unique = append(unique, m)
-		}
-	}
-	inputs = unique
+	inputs = compaction.DedupeByFileID(inputs)
 
 	return e.executeCompaction(inputs, level, outputLevel)
 }

@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"lsm-engine/internal/engine"
@@ -31,7 +32,7 @@ type RaftNode struct {
 	engineCfg  engine.Config
 	clusterDir string
 
-	eng *engine.LSMEngine
+	eng atomic.Pointer[engine.LSMEngine]
 	bus *events.EventBus
 
 	raft          *raft.Raft
@@ -84,13 +85,13 @@ func OpenRaftNode(cfg Config, engCfg engine.Config) (*RaftNode, error) {
 		cfg:          cfg,
 		engineCfg:    engCfg,
 		clusterDir:   cfg.DataDir,
-		eng:          eng,
 		bus:          events.NewEventBus(),
 		appliedStore: newAppliedStateStore(filepath.Join(cfg.DataDir, "applied-state.json")),
 		peerStore:    newPeerRegistryStore(filepath.Join(cfg.DataDir, "peers.json")),
 		peerRegistry: map[string]Peer{},
 		httpClient:   &http.Client{Timeout: 10 * time.Second},
 	}
+	node.eng.Store(eng)
 	node.bridgeEngineBus(eng)
 
 	if node.applied, err = node.appliedStore.Load(); err != nil {
@@ -220,9 +221,7 @@ func (n *RaftNode) bridgeEngineBus(eng *engine.LSMEngine) {
 }
 
 func (n *RaftNode) currentEngine() *engine.LSMEngine {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
-	return n.eng
+	return n.eng.Load()
 }
 
 func (n *RaftNode) EventBus() *events.EventBus {
@@ -603,8 +602,8 @@ func (n *RaftNode) Close() error {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if n.eng != nil {
-		if err := n.eng.Close(); err != nil && firstErr == nil {
+	if eng := n.eng.Load(); eng != nil {
+		if err := eng.Close(); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -845,8 +844,8 @@ func (f *raftFSM) Apply(logEntry *raft.Log) interface{} {
 		f.node.mu.RUnlock()
 		return nil
 	}
-	eng := f.node.eng
 	f.node.mu.RUnlock()
+	eng := f.node.eng.Load()
 
 	switch cmd.Type {
 	case CommandPut:
@@ -894,8 +893,9 @@ func (f *raftFSM) Snapshot() (raft.FSMSnapshot, error) {
 	node.mu.Lock()
 	defer node.mu.Unlock()
 
-	if node.eng != nil {
-		if err := node.eng.Close(); err != nil {
+	old := node.eng.Load()
+	if old != nil {
+		if err := old.Close(); err != nil {
 			_ = os.RemoveAll(stageRoot)
 			return nil, err
 		}
@@ -912,7 +912,7 @@ func (f *raftFSM) Snapshot() (raft.FSMSnapshot, error) {
 		_ = os.RemoveAll(stageRoot)
 		return nil, err
 	}
-	node.eng = reopened
+	node.eng.Store(reopened)
 	node.bridgeEngineBus(reopened)
 
 	return &engineSnapshot{
@@ -943,8 +943,9 @@ func (f *raftFSM) Restore(snapshot io.ReadCloser) error {
 	node.mu.Lock()
 	defer node.mu.Unlock()
 
-	if node.eng != nil {
-		if err := node.eng.Close(); err != nil {
+	old := node.eng.Load()
+	if old != nil {
+		if err := old.Close(); err != nil {
 			return err
 		}
 	}
@@ -955,7 +956,7 @@ func (f *raftFSM) Restore(snapshot io.ReadCloser) error {
 	if err != nil {
 		return err
 	}
-	node.eng = reopened
+	node.eng.Store(reopened)
 	node.bridgeEngineBus(reopened)
 	if err := node.appliedStore.Save(meta.Applied); err != nil {
 		return err

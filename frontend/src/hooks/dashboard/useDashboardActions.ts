@@ -1,4 +1,4 @@
-import { useEffectEvent, useState } from "react";
+import { useCallback, useState } from "react";
 
 import {
   attemptRemoteClose,
@@ -25,45 +25,60 @@ export function useDashboardActions({
   const [benchmarkResult, setBenchmarkResult] = useState<BenchResult | null>(null);
   const [closeMessage, setCloseMessage] = useState<string | null>(null);
 
-  const handlePut = useEffectEvent(async (key: string, value: string) => {
-    await putValue(key, value);
-    addOpsFeed("good", `Accepted PUT ${key}`, value);
-    await refreshSnapshot();
-  });
+  const handlePut = useCallback(
+    async (key: string, value: string) => {
+      await putValue(key, value);
+      addOpsFeed("good", `Accepted PUT ${key}`, value);
+      await refreshSnapshot();
+    },
+    [addOpsFeed, refreshSnapshot],
+  );
 
-  const handleDelete = useEffectEvent(async (key: string) => {
-    await deleteValue(key);
-    addOpsFeed("warn", `Accepted DELETE ${key}`);
-    await refreshSnapshot();
-  });
+  const handleDelete = useCallback(
+    async (key: string) => {
+      await deleteValue(key);
+      addOpsFeed("warn", `Accepted DELETE ${key}`);
+      await refreshSnapshot();
+    },
+    [addOpsFeed, refreshSnapshot],
+  );
 
-  const handleStyleChange = useEffectEvent(async (style: CompactionStyle) => {
-    await setCompactionStyle(style);
-    addCompactionFeed("accent", `Compaction style -> ${style}`);
-    await refreshSnapshot();
-  });
+  const handleStyleChange = useCallback(
+    async (style: CompactionStyle) => {
+      await setCompactionStyle(style);
+      addCompactionFeed("accent", `Compaction style -> ${style}`);
+      await refreshSnapshot();
+    },
+    [addCompactionFeed, refreshSnapshot],
+  );
 
-  const handleForceCompaction = useEffectEvent(async () => {
+  const handleForceCompaction = useCallback(async () => {
     await forceCompaction(0);
     addCompactionFeed("accent", "Manual L0 compaction requested");
-  });
+  }, [addCompactionFeed]);
 
-  const handleScenarioRun = useEffectEvent(async (name: string) => {
-    const result = await runScenario(name);
-    addOpsFeed("accent", `Scenario ${result.scenario}`, result.status);
-    await refreshSnapshot();
-  });
+  const handleScenarioRun = useCallback(
+    async (name: string) => {
+      const result = await runScenario(name);
+      addOpsFeed("accent", `Scenario ${result.scenario}`, result.status);
+      await refreshSnapshot();
+    },
+    [addOpsFeed, refreshSnapshot],
+  );
 
-  const handleBenchRun = useEffectEvent(async (requestBody: BenchRequest) => {
-    const result = await runBench(requestBody);
-    setBenchmarkResult(result);
-    addOpsFeed("info", "Benchmark complete", `${Math.round(result.ops_per_sec)} ops/sec`);
-  });
+  const handleBenchRun = useCallback(
+    async (requestBody: BenchRequest) => {
+      const result = await runBench(requestBody);
+      setBenchmarkResult(result);
+      addOpsFeed("info", "Benchmark complete", `${Math.round(result.ops_per_sec)} ops/sec`);
+    },
+    [addOpsFeed],
+  );
 
-  const handleCloseAttempt = useEffectEvent(async () => {
+  const handleCloseAttempt = useCallback(async () => {
     const result = await attemptRemoteClose();
     setCloseMessage(result.reason);
-  });
+  }, []);
 
   return {
     benchmarkResult,

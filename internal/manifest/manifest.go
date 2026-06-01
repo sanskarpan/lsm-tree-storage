@@ -104,7 +104,9 @@ func (m *Manifest) Apply(edit VersionEdit) error {
 		m.current.Levels[edit.Level] = newLevel
 		sortLevel(m.current.Levels[edit.Level], edit.Level)
 	case EditLogNumber:
-		m.current.LogNumber = edit.LogNumber
+		if edit.LogNumber > m.current.LogNumber {
+			m.current.LogNumber = edit.LogNumber
+		}
 	case EditNextFileID:
 		if edit.NextFileID > m.current.NextFileID {
 			m.current.NextFileID = edit.NextFileID

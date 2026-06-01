@@ -135,3 +135,19 @@ func TestManifest_RecoverRejectsTruncatedEdit(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "truncated")
 }
+
+func TestManifest_LogNumberIsMonotonic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "MANIFEST")
+
+	m, err := OpenManifest(path)
+	require.NoError(t, err)
+	defer func() { _ = m.Close() }()
+
+	require.NoError(t, m.Apply(VersionEdit{Type: EditLogNumber, LogNumber: 10}))
+	require.NoError(t, m.Apply(VersionEdit{Type: EditLogNumber, LogNumber: 5}))
+	require.NoError(t, m.Apply(VersionEdit{Type: EditLogNumber, LogNumber: 7}))
+	require.NoError(t, m.Apply(VersionEdit{Type: EditLogNumber, LogNumber: 42}))
+
+	assert.Equal(t, uint64(42), m.Current().LogNumber)
+}

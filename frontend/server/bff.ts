@@ -67,7 +67,12 @@ if (
 }
 
 // WebSocket clients for fan-out
-const wsClients = new Set<{ send: (data: string) => void }>();
+type WSClient = {
+  ws: any;
+  queue: string[];
+  draining: boolean;
+};
+const wsClients = new Set<WSClient>();
 
 function secureHeaders(request: Request) {
   const headers = new Headers({
@@ -114,6 +119,18 @@ function authorizedForBFF(request: Request) {
     "utf8",
   );
   return decoded === `${bffBasicAuth.username}:${bffBasicAuth.password}`;
+}
+
+const WS_REJECTED = new WeakSet<object>();
+
+function rejectWS(ws: any) {
+  WS_REJECTED.add(ws);
+  try {
+    ws.send(JSON.stringify({ error: "unauthorized" }));
+  } catch {}
+  try {
+    ws.close(1008, "unauthorized");
+  } catch {}
 }
 
 function unauthorizedBFFResponse(request: Request) {
@@ -231,11 +248,18 @@ function connectBackendWS() {
     backendReconnectDelayMs = 1000;
   };
   ws.onmessage = (e) => {
-    const data = e.data;
+    const data = typeof e.data === "string" ? e.data : "";
+    if (!data) return;
     for (const client of wsClients) {
-      try {
-        client.send(data);
-      } catch {}
+      if (client.queue.length >= 64) {
+        try {
+          client.ws.close(1009, "backpressure");
+        } catch {}
+        wsClients.delete(client);
+        continue;
+      }
+      client.queue.push(data);
+      drainClient(client);
     }
   };
   ws.onclose = () => {
@@ -245,6 +269,41 @@ function connectBackendWS() {
     setTimeout(connectBackendWS, delay);
   };
   ws.onerror = () => ws.close();
+}
+
+async function drainClient(client: {
+  ws: any;
+  queue: string[];
+  draining: boolean;
+}) {
+  if (client.draining) return;
+  client.draining = true;
+  try {
+    while (client.queue.length > 0) {
+      const data = client.queue[0];
+      try {
+        await new Promise<void>((resolve) => {
+          client.ws.send(data, (err: unknown) => {
+            if (err) {
+              wsClients.delete(client);
+              client.queue.length = 0;
+              try {
+                client.ws.close(1011, "send error");
+              } catch {}
+              return;
+            }
+            resolve();
+          });
+        });
+      } catch {
+        wsClients.delete(client);
+        return;
+      }
+      if (client.queue.length > 0) client.queue.shift();
+    }
+  } finally {
+    client.draining = false;
+  }
 }
 
 function clientFile(pathname: string) {
@@ -557,7 +616,19 @@ export const app = new Elysia()
   // WebSocket fan-out to frontend
   .ws("/ws", {
     open(ws) {
-      const client = { send: (data: string) => ws.send(data) };
+      const raw = (ws as any).raw as {
+        request: Request;
+        send: (data: string) => unknown;
+      };
+      if (!authorizedForBFF(raw.request)) {
+        rejectWS(ws);
+        return;
+      }
+      const client = {
+        ws,
+        queue: [] as string[],
+        draining: false,
+      };
       wsClients.add(client);
       (ws as any)._lsmClient = client;
     },

@@ -276,7 +276,11 @@ func (e *LSMEngine) recover() error {
 	files, _ := filepath.Glob(pattern)
 	var maxSSTID uint64
 	for _, f := range files {
-		fileID := extractFileID(f)
+		fileID, ok := extractFileID(f)
+		if !ok {
+			log.Printf("warn: skipping SSTable with non-numeric name %s", f)
+			continue
+		}
 		if fileID > maxSSTID {
 			maxSSTID = fileID
 		}
@@ -335,12 +339,18 @@ func listWALFiles(dataDir string) ([]string, uint64, error) {
 	}
 
 	sort.Slice(paths, func(i, j int) bool {
-		return extractFileID(paths[i]) < extractFileID(paths[j])
+		idI, _ := extractFileID(paths[i])
+		idJ, _ := extractFileID(paths[j])
+		return idI < idJ
 	})
 
 	var maxLogID uint64
 	for _, path := range paths {
-		if id := extractFileID(path); id > maxLogID {
+		id, ok := extractFileID(path)
+		if !ok {
+			continue
+		}
+		if id > maxLogID {
 			maxLogID = id
 		}
 	}
@@ -378,11 +388,14 @@ func rewriteMemtableToWAL(table *memtable.MemTable, walPath string) error {
 	return w.Close()
 }
 
-func extractFileID(path string) uint64 {
+func extractFileID(path string) (uint64, bool) {
 	base := filepath.Base(path)
 	name := strings.TrimSuffix(base, filepath.Ext(base))
-	id, _ := strconv.ParseUint(name, 10, 64)
-	return id
+	id, err := strconv.ParseUint(name, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return id, true
 }
 
 // ── WriteBatch ────────────────────────────────────────────────────────────────
@@ -849,9 +862,20 @@ func (e *LSMEngine) State() RuntimeState {
 
 // HealthStatus returns a probe-friendly readiness snapshot for the engine.
 func (e *LSMEngine) HealthStatus() HealthStatus {
-	state := e.State()
-	manifestPath := filepath.Join(e.cfg.DataDir, "MANIFEST")
+	e.mu.RLock()
+	state := RuntimeState{
+		Open:            true,
+		DataDir:         e.cfg.DataDir,
+		ActiveWALPath:   e.walPath,
+		ActiveLogNumber: e.logNumber,
+		SyncWAL:         e.cfg.SyncWAL,
+		CompactionStyle: e.cfg.CompactionStyle,
+	}
+	memSize := e.memTable.ApproximateSize()
+	immCount := len(e.immutables)
+	e.mu.RUnlock()
 
+	manifestPath := filepath.Join(e.cfg.DataDir, "MANIFEST")
 	status := HealthStatus{
 		Ready:                    true,
 		State:                    state,
@@ -863,12 +887,9 @@ func (e *LSMEngine) HealthStatus() HealthStatus {
 		FlushQueueCapacity:       cap(e.flushQueue),
 		CompactionTriggerBacklog: len(e.compactTrigger),
 		Level0StopWritesTrigger:  e.cfg.Level0StopWritesTrigger,
+		MutableMemtableSize:      memSize,
+		ImmutableCount:           immCount,
 	}
-
-	e.mu.RLock()
-	status.MutableMemtableSize = e.memTable.ApproximateSize()
-	status.ImmutableCount = len(e.immutables)
-	e.mu.RUnlock()
 
 	version := e.manifest.Current()
 	status.Level0Files = len(version.Levels[0])
