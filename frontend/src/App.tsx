@@ -1,9 +1,9 @@
-import { ScenarioLab } from "./components/ScenarioLab";
 import { AmplificationDeck } from "./features/amplification-deck/AmplificationDeck";
 import { BloomTelemetry } from "./features/bloom-telemetry/BloomTelemetry";
 import { CompactionStudio } from "./features/compaction-studio/CompactionStudio";
 import { LevelMatrix } from "./features/level-matrix/LevelMatrix";
 import { ReadInspector } from "./features/read-inspector/ReadInspector";
+import { ScenarioLab } from "./features/scenario-lab/ScenarioLab";
 import { WriteWorkbench } from "./features/write-workbench/WriteWorkbench";
 import { AppShell, TopBar } from "./components/layout";
 import { useDashboardData } from "./hooks/useDashboardData";
