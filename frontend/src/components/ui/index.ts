@@ -42,3 +42,5 @@ export {
 } from "./dropdown-menu";
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./tooltip";
 export { Skeleton } from "./skeleton";
+export { DataTable } from "./data-table";
+export type { DataTableProps } from "./data-table";
