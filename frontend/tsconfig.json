@@ -21,11 +21,23 @@
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
 
+    // Path aliases
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
     // Some stricter flags (disabled by default)
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false,
     "types": ["bun-types", "vite/client"]
   },
-  "include": ["index.ts", "vite.config.ts", "server/**/*.ts", "src/**/*"]
+  "include": [
+    "index.ts",
+    "vite.config.ts",
+    "components.json",
+    "server/**/*.ts",
+    "src/**/*"
+  ]
 }
