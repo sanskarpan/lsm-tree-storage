@@ -1,10 +1,10 @@
 import { AmplificationDeck } from "./components/AmplificationDeck";
-import { BloomTelemetry } from "./components/BloomTelemetry";
 import { CompactionStudio } from "./components/CompactionStudio";
-import { LevelMatrix } from "./components/LevelMatrix";
 import { ReadInspector } from "./components/ReadInspector";
 import { ScenarioLab } from "./components/ScenarioLab";
-import { WriteWorkbench } from "./components/WriteWorkbench";
+import { BloomTelemetry } from "./features/bloom-telemetry/BloomTelemetry";
+import { LevelMatrix } from "./features/level-matrix/LevelMatrix";
+import { WriteWorkbench } from "./features/write-workbench/WriteWorkbench";
 import { AppShell, TopBar } from "./components/layout";
 import { useDashboardData } from "./hooks/useDashboardData";
 
