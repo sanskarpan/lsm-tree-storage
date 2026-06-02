@@ -1,21 +1,20 @@
 import { AmplificationDeck } from "./components/AmplificationDeck";
 import { BloomTelemetry } from "./components/BloomTelemetry";
 import { CompactionStudio } from "./components/CompactionStudio";
-import { HeaderBar } from "./components/HeaderBar";
 import { LevelMatrix } from "./components/LevelMatrix";
 import { ReadInspector } from "./components/ReadInspector";
 import { ScenarioLab } from "./components/ScenarioLab";
 import { WriteWorkbench } from "./components/WriteWorkbench";
+import { AppShell, TopBar } from "./components/layout";
 import { useDashboardData } from "./hooks/useDashboardData";
 
 export function App() {
   const dashboard = useDashboardData();
 
   return (
-    <div className="app-shell">
-      <div className="app-shell__backdrop" />
-      <main className="app-shell__content">
-        <HeaderBar
+    <AppShell
+      topBar={
+        <TopBar
           config={dashboard.config}
           connected={dashboard.connected}
           runtime={dashboard.runtime}
@@ -24,59 +23,78 @@ export function App() {
           sessionWrites={dashboard.sessionWrites}
           stats={dashboard.stats}
         />
+      }
+      errorBanner={
+        dashboard.error ? (
+          <div className="error-banner">{dashboard.error}</div>
+        ) : null
+      }
+    >
+      <AppShell.Panel gridColumn="span 4">
+        <WriteWorkbench
+          capacityBytes={dashboard.config?.MemTableSize ?? 1}
+          memtable={dashboard.memtable}
+          onDelete={dashboard.handleDelete}
+          onPut={dashboard.handlePut}
+          walEntries={dashboard.walEntries}
+          writeFeed={dashboard.writeFeed}
+        />
+      </AppShell.Panel>
 
-        {dashboard.error ? <div className="error-banner">{dashboard.error}</div> : null}
+      <AppShell.Panel gridColumn="span 5">
+        <LevelMatrix
+          compactionStats={dashboard.compactionStats}
+          levels={dashboard.levels}
+          memtable={dashboard.memtable}
+          onRefresh={dashboard.refreshSnapshot}
+        />
+      </AppShell.Panel>
 
-        <div className="dashboard-grid">
-          <WriteWorkbench
-            capacityBytes={dashboard.config?.MemTableSize ?? 1}
-            memtable={dashboard.memtable}
-            onDelete={dashboard.handleDelete}
-            onPut={dashboard.handlePut}
-            walEntries={dashboard.walEntries}
-            writeFeed={dashboard.writeFeed}
-          />
+      <AppShell.Panel gridColumn="span 3">
+        <BloomTelemetry bloomStats={dashboard.bloomStats} />
+      </AppShell.Panel>
 
-          <LevelMatrix
-            compactionStats={dashboard.compactionStats}
-            levels={dashboard.levels}
-            memtable={dashboard.memtable}
-            onRefresh={dashboard.refreshSnapshot}
-          />
+      <AppShell.Panel gridColumn="span 4">
+        <ReadInspector
+          onInspect={dashboard.runReadTrace}
+          pending={dashboard.queryPending}
+          trace={dashboard.readTrace}
+        />
+      </AppShell.Panel>
 
-          <BloomTelemetry bloomStats={dashboard.bloomStats} />
+      <AppShell.Panel gridColumn="span 4">
+        <CompactionStudio
+          activeCompaction={dashboard.activeCompaction}
+          compactionFeed={dashboard.compactionFeed}
+          compactionStats={dashboard.compactionStats}
+          currentStyle={dashboard.runtime?.CompactionStyle ?? dashboard.config?.CompactionStyle ?? "leveled"}
+          onForceCompaction={dashboard.handleForceCompaction}
+          onStyleChange={dashboard.handleStyleChange}
+        />
+      </AppShell.Panel>
 
-          <ReadInspector onInspect={dashboard.runReadTrace} pending={dashboard.queryPending} trace={dashboard.readTrace} />
+      <AppShell.Panel gridColumn="span 4">
+        <AmplificationDeck
+          history={dashboard.ampHistory}
+          ra={dashboard.amplification.ra}
+          sa={dashboard.amplification.sa}
+          wa={dashboard.amplification.wa}
+        />
+      </AppShell.Panel>
 
-          <CompactionStudio
-            activeCompaction={dashboard.activeCompaction}
-            compactionFeed={dashboard.compactionFeed}
-            compactionStats={dashboard.compactionStats}
-            currentStyle={dashboard.runtime?.CompactionStyle ?? dashboard.config?.CompactionStyle ?? "leveled"}
-            onForceCompaction={dashboard.handleForceCompaction}
-            onStyleChange={dashboard.handleStyleChange}
-          />
-
-          <AmplificationDeck
-            history={dashboard.ampHistory}
-            ra={dashboard.amplification.ra}
-            sa={dashboard.amplification.sa}
-            wa={dashboard.amplification.wa}
-          />
-
-          <ScenarioLab
-            benchmarkResult={dashboard.benchmarkResult}
-            closeMessage={dashboard.closeMessage}
-            config={dashboard.config}
-            onBenchRun={dashboard.handleBenchRun}
-            onCloseAttempt={dashboard.handleCloseAttempt}
-            onScenarioRun={dashboard.handleScenarioRun}
-            opsFeed={dashboard.opsFeed}
-            runtime={dashboard.runtime}
-            scenarios={dashboard.scenarios}
-          />
-        </div>
-      </main>
-    </div>
+      <AppShell.Panel gridColumn="full">
+        <ScenarioLab
+          benchmarkResult={dashboard.benchmarkResult}
+          closeMessage={dashboard.closeMessage}
+          config={dashboard.config}
+          onBenchRun={dashboard.handleBenchRun}
+          onCloseAttempt={dashboard.handleCloseAttempt}
+          onScenarioRun={dashboard.handleScenarioRun}
+          opsFeed={dashboard.opsFeed}
+          runtime={dashboard.runtime}
+          scenarios={dashboard.scenarios}
+        />
+      </AppShell.Panel>
+    </AppShell>
   );
 }

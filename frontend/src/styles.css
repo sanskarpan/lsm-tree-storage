@@ -225,14 +225,6 @@ button:disabled {
   backdrop-filter: blur(14px);
 }
 
-.panel:nth-child(1) { grid-column: span 4; }
-.panel:nth-child(2) { grid-column: span 5; }
-.panel:nth-child(3) { grid-column: span 3; }
-.panel:nth-child(4) { grid-column: span 4; }
-.panel:nth-child(5) { grid-column: span 4; }
-.panel:nth-child(6) { grid-column: span 4; }
-.panel:nth-child(7) { grid-column: span 12; }
-
 .panel__header {
   display: flex;
   align-items: flex-start;
