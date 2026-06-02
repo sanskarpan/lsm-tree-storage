@@ -12,9 +12,15 @@ import (
 	"lsm-engine/internal/events"
 )
 
-// SSTableReader reads data from an SSTable file
+// SSTableReader reads data from an SSTable file.
+//
+// On platforms where mmap is available the entire file is mapped into memory
+// at open time, so block reads are zero-copy slices into the mmap region.
+// On other platforms (e.g. Windows) the reader falls back to ReadAt, which is
+// functionally identical but incurs a syscall per block.
 type SSTableReader struct {
 	file        *os.File
+	mmapData    []byte
 	indexBlock  *Block
 	bloomFilter *bloom.BloomFilter
 	meta        SSTableMeta
@@ -48,37 +54,48 @@ func NewSSTableReader(path string, meta SSTableMeta, blockCache *cache.BlockCach
 	filterHandle, n1 := decodeBlockHandle(footer)
 	indexHandle, _ := decodeBlockHandle(footer[n1:])
 
+	// Best-effort mmap. If mmap fails we silently fall back to ReadAt; the
+	// reader still works, just with an extra syscall per block read.
+	mmapData, mmapErr := mmapFile(f)
+	if mmapErr != nil {
+		mmapData = nil
+	}
+	if len(mmapData) > 0 {
+		_ = madviseSequential(mmapData)
+	}
+
+	r := &SSTableReader{
+		file:       f,
+		mmapData:   mmapData,
+		meta:       meta,
+		blockCache: blockCache,
+		bus:        bus,
+	}
+
 	// Load filter block
-	var bf *bloom.BloomFilter
 	if filterHandle.Size > 0 {
-		filterData, err := readBlockAt(f, filterHandle)
+		filterData, err := r.readBlockAt(filterHandle)
 		if err != nil {
-			_ = f.Close()
+			_ = r.Close()
 			return nil, err
 		}
-		bf = bloom.DeserializeBloomFilter(filterData)
+		r.bloomFilter = bloom.DeserializeBloomFilter(filterData)
 	}
 
 	// Load index block
-	indexData, err := readBlockAt(f, indexHandle)
+	indexData, err := r.readBlockAt(indexHandle)
 	if err != nil {
-		_ = f.Close()
+		_ = r.Close()
 		return nil, err
 	}
 	indexBlock, err := DecodeBlock(indexData)
 	if err != nil {
-		_ = f.Close()
+		_ = r.Close()
 		return nil, err
 	}
+	r.indexBlock = indexBlock
 
-	return &SSTableReader{
-		file:        f,
-		indexBlock:  indexBlock,
-		bloomFilter: bf,
-		meta:        meta,
-		blockCache:  blockCache,
-		bus:         bus,
-	}, nil
+	return r, nil
 }
 
 // Get looks up a key in the SSTable with the given read seqNo
@@ -151,7 +168,7 @@ func (r *SSTableReader) findDataBlock(userKey []byte) (BlockHandle, bool) {
 // BlockIterator) must be able to rely on the slice's stability for the
 // lifetime of the block.
 func (r *SSTableReader) loadBlock(handle BlockHandle) (*Block, error) {
-	cacheKey := cache.CacheKey{FileID: r.meta.FileID, Offset: handle.Offset}
+	cacheKey := cache.CacheKey{FileID: r.meta.FileID, Level: r.meta.Level, Offset: handle.Offset}
 
 	if r.blockCache != nil {
 		if data, ok := r.blockCache.Get(cacheKey); ok {
@@ -160,7 +177,7 @@ func (r *SSTableReader) loadBlock(handle BlockHandle) (*Block, error) {
 		}
 	}
 
-	data, err := readBlockAt(r.file, handle)
+	data, err := r.readBlockAt(handle)
 	if err != nil {
 		return nil, err
 	}
@@ -182,18 +199,37 @@ func (r *SSTableReader) Meta() SSTableMeta {
 	return r.meta
 }
 
-// Close closes the SSTable file
+// Close closes the SSTable file and releases the mmap region.
 func (r *SSTableReader) Close() error {
-	return r.file.Close()
+	// Drop the mmap first; the kernel keeps the file's page cache alive
+	// after munmap, so POSIX_FADV_DONTNEED afterwards is safe.
+	if err := munmapFile(r.mmapData); err != nil {
+		_ = r.file.Close()
+		return err
+	}
+	r.mmapData = nil
+	if r.file != nil {
+		_ = fadviseDontNeed(r.file, int64(r.meta.FileSize))
+		return r.file.Close()
+	}
+	return nil
 }
 
-// readBlockAt reads block data at the given handle from a file
-func readBlockAt(f *os.File, handle BlockHandle) ([]byte, error) {
+// readBlockAt returns the raw bytes of the block at handle. If the file is
+// mmap'd, the returned slice is a view into the mmap region (no copy). If
+// mmap is unavailable, the bytes are read with ReadAt.
+func (r *SSTableReader) readBlockAt(handle BlockHandle) ([]byte, error) {
 	if handle.Size == 0 {
 		return nil, io.EOF
 	}
+	if end := int64(handle.Offset) + int64(handle.Size); end > int64(len(r.mmapData)) {
+		return nil, io.ErrUnexpectedEOF
+	}
+	if len(r.mmapData) > 0 {
+		return r.mmapData[handle.Offset : handle.Offset+handle.Size], nil
+	}
 	data := make([]byte, handle.Size)
-	_, err := f.ReadAt(data, int64(handle.Offset))
+	_, err := r.file.ReadAt(data, int64(handle.Offset))
 	return data, err
 }
 

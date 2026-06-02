@@ -605,9 +605,8 @@ func (e *LSMEngine) Get(key []byte) ([]byte, error) {
 	mem := e.memTable
 	imms := make([]*immutableMemtable, len(e.immutables))
 	copy(imms, e.immutables)
-	e.mu.RUnlock()
-
 	readSeqNo := atomic.LoadUint64(&e.seqNo)
+	e.mu.RUnlock()
 
 	e.bus.Publish(events.Event{Type: events.EvtReadStart, Extra: map[string]interface{}{
 		"key": string(key),
@@ -761,6 +760,18 @@ func (e *LSMEngine) Close() error {
 		e.flushWG.Wait()
 		e.compactWG.Wait()
 
+		// Drop references to mutable/immutable memtables before closing the
+		// WAL/manifest/readers. If a future code path ever invokes Close
+		// concurrently (e.g. a panic handler racing an admin request) the
+		// later Close call will see no live memtable to flush and no live
+		// readers to leak, because closeOnce will short-circuit the second
+		// caller. The slice clear is also a strong GC hint for the
+		// post-shutdown period.
+		e.mu.Lock()
+		e.memTable = nil
+		e.immutables = nil
+		e.mu.Unlock()
+
 		if e.wal != nil {
 			err = e.wal.Close()
 		}
@@ -773,6 +784,7 @@ func (e *LSMEngine) Close() error {
 		for _, r := range e.readers {
 			_ = r.Close()
 		}
+		e.readers = nil
 		e.readersMu.Unlock()
 	})
 	return err

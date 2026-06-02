@@ -68,3 +68,20 @@ func TestLRU_UpdateExisting(t *testing.T) {
 	assert.Equal(t, []byte("v2updated"), data)
 	assert.Equal(t, 1, c.Len())
 }
+
+func TestLRU_LevelIsolatesEntries(t *testing.T) {
+	c := NewBlockCache(1024, &events.NoopBus{})
+	l0 := CacheKey{FileID: 1, Level: 0, Offset: 100}
+	l2 := CacheKey{FileID: 1, Level: 2, Offset: 100}
+
+	c.Insert(l0, []byte("from-l0"))
+	c.Insert(l2, []byte("from-l2"))
+
+	assert.Equal(t, 2, c.Len(), "same FileID+Offset at different levels must be distinct entries")
+	got0, ok := c.Get(l0)
+	require.True(t, ok)
+	assert.Equal(t, []byte("from-l0"), got0)
+	got2, ok := c.Get(l2)
+	require.True(t, ok)
+	assert.Equal(t, []byte("from-l2"), got2)
+}

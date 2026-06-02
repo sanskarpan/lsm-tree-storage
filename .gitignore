@@ -10,3 +10,5 @@ loadtest
 *.tar.gz
 *.tar.gz.sha256
 *.tmp
+coverage.out
+

@@ -35,9 +35,9 @@ This project covers the complete LSM write and read paths, three compaction stra
 | **Write Path** | WAL append + fsync → MemTable (skip list) → Immutable queue → SSTable flush |
 | **WAL** | 32KB block format, CRC32 checksums, record fragmentation (Full/First/Middle/Last) |
 | **MemTable** | Skip list (O(log n)), tombstone markers, mutable → immutable rotation |
-| **SSTable** | Data blocks (4KB, prefix-compressed), Filter block (Bloom), Index block, Footer |
+| **SSTable** | Data blocks (4KB, prefix-compressed), Filter block (Bloom), Index block, Footer; mmap'd on Unix (MADV_SEQUENTIAL, POSIX_FADV_DONTNEED on close), ReadAt fallback on Windows |
 | **Bloom Filters** | k-hash bit array, configurable bits-per-key, per-SSTable, ~1% FP at 10 bpk |
-| **Block Cache** | LRU with configurable capacity, hit-rate tracking, CacheKey = (FileID, BlockOffset) |
+| **Block Cache** | LRU with configurable capacity, hit-rate tracking, CacheKey = (FileID, Level, BlockOffset) |
 | **Compaction** | LCS (Leveled), STCS (Size-Tiered), TWCS (Time-Window); live switchable |
 | **MANIFEST** | Append-only VersionEdit log; atomic compaction commits |
 | **Crash Recovery** | WAL replay → MemTable rebuild; MANIFEST replay → SSTable level reconstruction |
@@ -191,6 +191,9 @@ lsm-engine/
 │   ├── sstable/
 │   │   ├── builder.go              # SSTableBuilder: data blocks, index, filter, footer
 │   │   ├── reader.go               # SSTableReader: Get, NewIterator, index loading
+│   │   ├── reader_mmap_unix.go     # mmap, munmap, MADV_SEQUENTIAL (Unix)
+│   │   ├── reader_mmap_linux.go    # POSIX_FADV_DONTNEED (Linux)
+│   │   ├── reader_mmap_windows.go  # no-op fallbacks (Windows)
 │   │   ├── block.go                # Block: prefix compression, restart points, binary search
 │   │   ├── block_builder.go        # BlockBuilder: accumulates entries
 │   │   └── format.go               # BlockHandle, Footer, InternalKey definitions
@@ -909,5 +912,5 @@ The engine is designed around the following invariants, all verified by the inte
 | Compaction | STCS, LCS, TWCS; write/read/space amplification tradeoffs; k-way merge via min-heap |
 | MANIFEST | Append-only VersionEdit log; atomic compaction commits; SSTable level tracking |
 | Crash recovery | WAL replay → MemTable rebuild; MANIFEST replay → SSTable level reconstruction |
-| Block Cache | LRU eviction, CacheKey = (FileID, BlockOffset), hit-rate tracking |
+| Block Cache | LRU eviction, CacheKey = (FileID, Level, BlockOffset), hit-rate tracking |
 | Event system | Non-blocking fan-out EventBus → WebSocket → real-time dashboard |

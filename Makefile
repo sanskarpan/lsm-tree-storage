@@ -1,19 +1,39 @@
-.PHONY: run test test-race bench lint clean loadtest backup docker-build compose-up compose-down
+.PHONY: run build test test-race test-coverage vet lint bench loadtest backup docker-build compose-up compose-down clean
+
+GO ?= go
+GOLANGCI_LINT ?= golangci-lint
 
 run:
-	go run ./cmd/server
+	$(GO) run ./cmd/server
+
+build:
+	$(GO) build ./...
 
 test:
-	go test ./...
+	$(GO) test ./...
 
 test-race:
-	go test ./... -race -count=3
+	$(GO) test ./... -race -count=3
+
+test-coverage:
+	$(GO) test ./... -coverprofile=coverage.out -covermode=atomic
+	$(GO) tool cover -func=coverage.out | tail -1
+
+vet:
+	$(GO) vet ./...
+
+# golangci-lint is optional; if it isn't installed fall back to `go vet`.
+# `go vet` already catches the most common correctness issues.
+lint:
+	@if command -v $(GOLANGCI_LINT) >/dev/null 2>&1; then \
+		$(GOLANGCI_LINT) run ./...; \
+	else \
+		echo "golangci-lint not installed; falling back to go vet"; \
+		$(GO) vet ./...; \
+	fi
 
 bench:
-	go test ./... -bench=. -benchmem -run='^$$'
-
-lint:
-	golangci-lint run ./...
+	$(GO) test ./... -bench=. -benchmem -run='^$$'
 
 loadtest:
 	./scripts/loadtest.sh
@@ -33,4 +53,4 @@ compose-down:
 
 clean:
 	rm -rf data/
-	rm -f *.sst *.log
+	rm -f *.sst *.log coverage.out

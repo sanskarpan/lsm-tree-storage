@@ -9,9 +9,13 @@ import (
 	"lsm-engine/internal/events"
 )
 
-// CacheKey uniquely identifies a block (fileID + blockOffset)
+// CacheKey uniquely identifies a block (fileID + level + blockOffset).
+// Level is included so a future compaction path that reuses a FileID across
+// levels (or any cross-level cache sharing) cannot accidentally serve a
+// block from the wrong level.
 type CacheKey struct {
 	FileID uint64
+	Level  int
 	Offset uint64
 }
 
