@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import { Progress } from "@/components/ui/progress";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { CompactionLevelStat, LevelInfo, MemtableSnapshotResponse } from "../../types";
 
 type LevelMatrixProps = {
@@ -38,8 +39,9 @@ export function LevelMatrix({ levels, memtable, compactionStats, onRefresh }: Le
   const maxLevelBytes = Math.max(...levels.map((l) => l.total_size), 1);
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+    <TooltipProvider delayDuration={150}>
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
         <div className="flex flex-col gap-1">
           <CardTitle>Level matrix</CardTitle>
           <CardDescription>Topology</CardDescription>
@@ -80,13 +82,20 @@ export function LevelMatrix({ levels, memtable, compactionStats, onRefresh }: Le
                 <div className="flex flex-wrap gap-1">
                   {level.files.length > 0 ? (
                     level.files.slice(0, 12).map((file) => (
-                      <span
-                        key={file.file_id}
-                        title={`#${file.file_id} ${file.first_key} → ${file.last_key}`}
-                        className="inline-flex items-center gap-1 rounded border border-[var(--border)] bg-[var(--bg-sunken)] px-1.5 py-0.5 text-[10px] font-mono"
-                      >
-                        #{file.file_id}
-                      </span>
+                      <Tooltip key={file.file_id}>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 rounded border border-[var(--border)] bg-[var(--bg-sunken)] px-1.5 py-0.5 text-[10px] font-mono hover:bg-[var(--muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+                          >
+                            #{file.file_id}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          #{file.file_id} · {file.first_key} → {file.last_key} ·{" "}
+                          {file.num_keys.toLocaleString()} keys
+                        </TooltipContent>
+                      </Tooltip>
                     ))
                   ) : (
                     <span className="text-xs text-[var(--fg-subtle)]">No files</span>
@@ -170,5 +179,6 @@ export function LevelMatrix({ levels, memtable, compactionStats, onRefresh }: Le
         </div>
       </CardContent>
     </Card>
+    </TooltipProvider>
   );
 }
