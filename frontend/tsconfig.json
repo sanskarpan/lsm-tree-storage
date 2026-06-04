@@ -31,7 +31,7 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false,
-    "types": ["bun-types", "vite/client"]
+    "types": ["bun-types", "vite/client", "@testing-library/jest-dom"]
   },
   "include": [
     "index.ts",
