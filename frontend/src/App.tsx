@@ -176,7 +176,19 @@ const TopBarBlock = React.memo(function TopBarBlock() {
 
 const ErrorBannerBlock = React.memo(function ErrorBannerBlock() {
   const error = useDashboardStore((s) => s.error);
-  return error ? <Banner tone="danger">{error}</Banner> : null;
+  const setError = useDashboardStore((s) => s.setError);
+  const [dismissed, dismiss] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (error && error !== dismissed) {
+      dismiss(null);
+    }
+  }, [error, dismissed]);
+  if (!error || error === dismissed) return null;
+  return (
+    <Banner tone="danger" dismissible onDismiss={() => dismiss(error)}>
+      {error}
+    </Banner>
+  );
 });
 
 export function App() {
