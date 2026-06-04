@@ -44,6 +44,7 @@ export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./tool
 export { Skeleton } from "./skeleton";
 export { Banner } from "./banner";
 export type { BannerProps } from "./banner";
+export { PanelSkeleton } from "./panel-skeleton";
 export { Progress } from "./progress";
 export type { ProgressProps } from "./progress";
 export { Select } from "./select";
