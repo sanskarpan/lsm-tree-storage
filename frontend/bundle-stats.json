@@ -1,0 +1,550 @@
+assets/AmplificationDeck.js:
+  /src/features/amplification-deck/AmplificationDeck.tsx:
+    rendered: 5799
+    gzip: 1572
+    brotli: 1383
+assets/app.js:
+  /client/index.html:
+    rendered: 0
+    gzip: 0
+    brotli: 0
+  /node_modules/@floating-ui/core/dist/floating-ui.core.mjs:
+    rendered: 20186
+    gzip: 4610
+    brotli: 4134
+  /node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:
+    rendered: 18834
+    gzip: 4561
+    brotli: 4127
+  /node_modules/@floating-ui/react-dom/dist/floating-ui.react-dom.mjs:
+    rendered: 6926
+    gzip: 1891
+    brotli: 1687
+  /node_modules/@floating-ui/utils/dist/floating-ui.utils.dom.mjs:
+    rendered: 4800
+    gzip: 1454
+    brotli: 1260
+  /node_modules/@floating-ui/utils/dist/floating-ui.utils.mjs:
+    rendered: 3426
+    gzip: 1099
+    brotli: 978
+  /node_modules/@radix-ui/primitive/dist/index.mjs:
+    rendered: 466
+    gzip: 281
+    brotli: 217
+  /node_modules/@radix-ui/react-arrow/dist/index.mjs:
+    rendered: 590
+    gzip: 374
+    brotli: 314
+  /node_modules/@radix-ui/react-collection/dist/index.mjs:
+    rendered: 2796
+    gzip: 877
+    brotli: 772
+  /node_modules/@radix-ui/react-collection/node_modules/@radix-ui/react-slot/dist/index.mjs:
+    rendered: 3441
+    gzip: 1087
+    brotli: 980
+  /node_modules/@radix-ui/react-compose-refs/dist/index.mjs:
+    rendered: 787
+    gzip: 387
+    brotli: 366
+  /node_modules/@radix-ui/react-context/dist/index.mjs:
+    rendered: 2427
+    gzip: 831
+    brotli: 731
+  /node_modules/@radix-ui/react-direction/dist/index.mjs:
+    rendered: 274
+    gzip: 188
+    brotli: 151
+  /node_modules/@radix-ui/react-dismissable-layer/dist/index.mjs:
+    rendered: 7660
+    gzip: 1876
+    brotli: 1619
+  /node_modules/@radix-ui/react-dropdown-menu/dist/index.mjs:
+    rendered: 10398
+    gzip: 1991
+    brotli: 1737
+  /node_modules/@radix-ui/react-focus-guards/dist/index.mjs:
+    rendered: 893
+    gzip: 422
+    brotli: 343
+  /node_modules/@radix-ui/react-focus-scope/dist/index.mjs:
+    rendered: 7052
+    gzip: 2134
+    brotli: 1840
+  /node_modules/@radix-ui/react-id/dist/index.mjs:
+    rendered: 433
+    gzip: 287
+    brotli: 248
+  /node_modules/@radix-ui/react-menu/dist/index.mjs:
+    rendered: 29958
+    gzip: 5960
+    brotli: 5324
+  /node_modules/@radix-ui/react-menu/node_modules/@radix-ui/react-slot/dist/index.mjs:
+    rendered: 3413
+    gzip: 1073
+    brotli: 964
+  /node_modules/@radix-ui/react-popper/dist/index.mjs:
+    rendered: 8735
+    gzip: 2651
+    brotli: 2339
+  /node_modules/@radix-ui/react-portal/dist/index.mjs:
+    rendered: 629
+    gzip: 390
+    brotli: 319
+  /node_modules/@radix-ui/react-presence/dist/index.mjs:
+    rendered: 4056
+    gzip: 1258
+    brotli: 1102
+  /node_modules/@radix-ui/react-primitive/dist/index.mjs:
+    rendered: 882
+    gzip: 506
+    brotli: 453
+  /node_modules/@radix-ui/react-primitive/node_modules/@radix-ui/react-slot/dist/index.mjs:
+    rendered: 3512
+    gzip: 1118
+    brotli: 1006
+  /node_modules/@radix-ui/react-roving-focus/dist/index.mjs:
+    rendered: 7770
+    gzip: 2235
+    brotli: 1990
+  /node_modules/@radix-ui/react-slot/dist/index.mjs:
+    rendered: 4066
+    gzip: 1283
+    brotli: 1156
+  /node_modules/@radix-ui/react-use-callback-ref/dist/index.mjs:
+    rendered: 332
+    gzip: 213
+    brotli: 174
+  /node_modules/@radix-ui/react-use-controllable-state/dist/index.mjs:
+    rendered: 1978
+    gzip: 740
+    brotli: 649
+  /node_modules/@radix-ui/react-use-escape-keydown/dist/index.mjs:
+    rendered: 581
+    gzip: 312
+    brotli: 246
+  /node_modules/@radix-ui/react-use-layout-effect/dist/index.mjs:
+    rendered: 172
+    gzip: 155
+    brotli: 126
+  /node_modules/@radix-ui/react-use-size/dist/index.mjs:
+    rendered: 1055
+    gzip: 458
+    brotli: 387
+  /node_modules/aria-hidden/dist/es2015/index.js:
+    rendered: 3643
+    gzip: 1146
+    brotli: 988
+  /node_modules/class-variance-authority/dist/index.mjs:
+    rendered: 1986
+    gzip: 647
+    brotli: 559
+  /node_modules/clsx/dist/clsx.mjs:
+    rendered: 633
+    gzip: 358
+    brotli: 304
+  /node_modules/get-nonce/dist/es2015/index.js:
+    rendered: 229
+    gzip: 172
+    brotli: 132
+  /node_modules/lucide-react/dist/esm/context.mjs:
+    rendered: 201
+    gzip: 145
+    brotli: 134
+  /node_modules/lucide-react/dist/esm/createLucideIcon.mjs:
+    rendered: 466
+    gzip: 284
+    brotli: 242
+  /node_modules/lucide-react/dist/esm/defaultAttributes.mjs:
+    rendered: 302
+    gzip: 220
+    brotli: 184
+  /node_modules/lucide-react/dist/esm/Icon.mjs:
+    rendered: 1184
+    gzip: 537
+    brotli: 481
+  /node_modules/lucide-react/dist/esm/icons/check.mjs:
+    rendered: 201
+    gzip: 182
+    brotli: 159
+  /node_modules/lucide-react/dist/esm/icons/chevron-right.mjs:
+    rendered: 222
+    gzip: 188
+    brotli: 166
+  /node_modules/lucide-react/dist/esm/icons/circle-alert.mjs:
+    rendered: 404
+    gzip: 242
+    brotli: 235
+  /node_modules/lucide-react/dist/esm/icons/circle.mjs:
+    rendered: 215
+    gzip: 176
+    brotli: 167
+  /node_modules/lucide-react/dist/esm/icons/moon.mjs:
+    rendered: 292
+    gzip: 245
+    brotli: 224
+  /node_modules/lucide-react/dist/esm/icons/rows-3.mjs:
+    rendered: 346
+    gzip: 238
+    brotli: 215
+  /node_modules/lucide-react/dist/esm/icons/rows-4.mjs:
+    rendered: 400
+    gzip: 252
+    brotli: 216
+  /node_modules/lucide-react/dist/esm/icons/sun.mjs:
+    rendered: 663
+    gzip: 309
+    brotli: 282
+  /node_modules/lucide-react/dist/esm/icons/x.mjs:
+    rendered: 228
+    gzip: 188
+    brotli: 181
+  /node_modules/lucide-react/dist/esm/shared/src/utils/hasA11yProp.mjs:
+    rendered: 249
+    gzip: 194
+    brotli: 186
+  /node_modules/lucide-react/dist/esm/shared/src/utils/mergeClasses.mjs:
+    rendered: 287
+    gzip: 207
+    brotli: 178
+  /node_modules/lucide-react/dist/esm/shared/src/utils/toCamelCase.mjs:
+    rendered: 223
+    gzip: 191
+    brotli: 175
+  /node_modules/lucide-react/dist/esm/shared/src/utils/toKebabCase.mjs:
+    rendered: 182
+    gzip: 168
+    brotli: 146
+  /node_modules/lucide-react/dist/esm/shared/src/utils/toPascalCase.mjs:
+    rendered: 232
+    gzip: 177
+    brotli: 167
+  /node_modules/react-dom/cjs/react-dom-client.production.js:
+    rendered: 452058
+    gzip: 84703
+    brotli: 69458
+  /node_modules/react-dom/cjs/react-dom.production.js:
+    rendered: 5708
+    gzip: 1610
+    brotli: 1394
+  /node_modules/react-dom/client.js:
+    rendered: 473
+    gzip: 296
+    brotli: 224
+  /node_modules/react-dom/index.js:
+    rendered: 468
+    gzip: 293
+    brotli: 239
+  /node_modules/react-remove-scroll-bar/dist/es2015/component.js:
+    rendered: 2610
+    gzip: 874
+    brotli: 739
+  /node_modules/react-remove-scroll-bar/dist/es2015/constants.js:
+    rendered: 309
+    gzip: 202
+    brotli: 158
+  /node_modules/react-remove-scroll-bar/dist/es2015/index.js:
+    rendered: 0
+    gzip: 0
+    brotli: 0
+  /node_modules/react-remove-scroll-bar/dist/es2015/utils.js:
+    rendered: 978
+    gzip: 465
+    brotli: 391
+  /node_modules/react-remove-scroll/dist/es2015/aggresiveCapture.js:
+    rendered: 496
+    gzip: 295
+    brotli: 211
+  /node_modules/react-remove-scroll/dist/es2015/Combination.js:
+    rendered: 325
+    gzip: 230
+    brotli: 175
+  /node_modules/react-remove-scroll/dist/es2015/handleScroll.js:
+    rendered: 3055
+    gzip: 1008
+    brotli: 850
+  /node_modules/react-remove-scroll/dist/es2015/medium.js:
+    rendered: 117
+    gzip: 124
+    brotli: 93
+  /node_modules/react-remove-scroll/dist/es2015/sidecar.js:
+    rendered: 148
+    gzip: 139
+    brotli: 104
+  /node_modules/react-remove-scroll/dist/es2015/SideEffect.js:
+    rendered: 6428
+    gzip: 1847
+    brotli: 1635
+  /node_modules/react-remove-scroll/dist/es2015/UI.js:
+    rendered: 1882
+    gzip: 746
+    brotli: 662
+  /node_modules/react-style-singleton/dist/es2015/component.js:
+    rendered: 297
+    gzip: 201
+    brotli: 155
+  /node_modules/react-style-singleton/dist/es2015/hook.js:
+    rendered: 335
+    gzip: 218
+    brotli: 177
+  /node_modules/react-style-singleton/dist/es2015/index.js:
+    rendered: 0
+    gzip: 0
+    brotli: 0
+  /node_modules/react-style-singleton/dist/es2015/singleton.js:
+    rendered: 1008
+    gzip: 473
+    brotli: 388
+  /node_modules/react/cjs/react-jsx-runtime.production.js:
+    rendered: 866
+    gzip: 444
+    brotli: 372
+  /node_modules/react/cjs/react.production.js:
+    rendered: 15098
+    gzip: 4049
+    brotli: 3553
+  /node_modules/react/index.js:
+    rendered: 176
+    gzip: 156
+    brotli: 122
+  /node_modules/react/jsx-runtime.js:
+    rendered: 200
+    gzip: 168
+    brotli: 139
+  /node_modules/scheduler/cjs/scheduler.production.js:
+    rendered: 8994
+    gzip: 2295
+    brotli: 1990
+  /node_modules/scheduler/index.js:
+    rendered: 188
+    gzip: 160
+    brotli: 124
+  /node_modules/tailwind-merge/dist/bundle-mjs.mjs:
+    rendered: 55854
+    gzip: 11307
+    brotli: 9788
+  /node_modules/tslib/tslib.es6.mjs:
+    rendered: 1058
+    gzip: 492
+    brotli: 421
+  /node_modules/use-callback-ref/dist/es2015/assignRef.js:
+    rendered: 206
+    gzip: 170
+    brotli: 132
+  /node_modules/use-callback-ref/dist/es2015/useMergeRef.js:
+    rendered: 956
+    gzip: 436
+    brotli: 377
+  /node_modules/use-callback-ref/dist/es2015/useRef.js:
+    rendered: 503
+    gzip: 278
+    brotli: 241
+  /node_modules/use-sidecar/dist/es2015/exports.js:
+    rendered: 540
+    gzip: 324
+    brotli: 269
+  /node_modules/use-sidecar/dist/es2015/medium.js:
+    rendered: 1777
+    gzip: 646
+    brotli: 539
+  /node_modules/zustand/esm/react.mjs:
+    rendered: 691
+    gzip: 326
+    brotli: 267
+  /node_modules/zustand/esm/vanilla.mjs:
+    rendered: 1011
+    gzip: 442
+    brotli: 388
+  /src/App.tsx:
+    rendered: 7759
+    gzip: 1386
+    brotli: 1260
+  /src/components/layout/AppShell.tsx:
+    rendered: 1478
+    gzip: 560
+    brotli: 473
+  /src/components/layout/index.ts:
+    rendered: 0
+    gzip: 0
+    brotli: 0
+  /src/components/layout/TopBar.tsx:
+    rendered: 7521
+    gzip: 1331
+    brotli: 1154
+  /src/components/ui/banner.tsx:
+    rendered: 1691
+    gzip: 659
+    brotli: 568
+  /src/components/ui/button.tsx:
+    rendered: 1511
+    gzip: 677
+    brotli: 569
+  /src/components/ui/dropdown-menu.tsx:
+    rendered: 5027
+    gzip: 1085
+    brotli: 915
+  /src/components/ui/panel-skeleton.tsx:
+    rendered: 756
+    gzip: 364
+    brotli: 309
+  /src/components/ui/skeleton.tsx:
+    rendered: 255
+    gzip: 217
+    brotli: 169
+  /src/hooks/useDashboardData.ts:
+    rendered: 1421
+    gzip: 517
+    brotli: 440
+  /src/hooks/useTheme.ts:
+    rendered: 1927
+    gzip: 606
+    brotli: 498
+  /src/lib/api.ts:
+    rendered: 2367
+    gzip: 771
+    brotli: 669
+  /src/lib/dashboard/feed.ts:
+    rendered: 454
+    gzip: 277
+    brotli: 221
+  /src/lib/utils.ts:
+    rendered: 98
+    gzip: 104
+    brotli: 91
+  /src/main.tsx:
+    rendered: 335
+    gzip: 228
+    brotli: 180
+  /src/store/dashboard-store.ts:
+    rendered: 9458
+    gzip: 2982
+    brotli: 2619
+  /src/styles/base.css:
+    rendered: 0
+    gzip: 0
+    brotli: 0
+  rolldown/runtime.js:
+    rendered: 1124
+    gzip: 553
+    brotli: 492
+  vite/modulepreload-polyfill.js:
+    rendered: 1205
+    gzip: 532
+    brotli: 450
+  vite/preload-helper.js:
+    rendered: 2104
+    gzip: 986
+    brotli: 830
+assets/BloomTelemetry.js:
+  /src/features/bloom-telemetry/BloomTelemetry.tsx:
+    rendered: 5148
+    gzip: 1245
+    brotli: 1089
+assets/card.js:
+  /src/components/ui/badge.tsx:
+    rendered: 1254
+    gzip: 516
+    brotli: 449
+  /src/components/ui/card.tsx:
+    rendered: 1594
+    gzip: 444
+    brotli: 375
+assets/CompactionStudio.js:
+  /src/features/compaction-studio/CompactionStudio.tsx:
+    rendered: 5403
+    gzip: 1337
+    brotli: 1146
+assets/data-table.js:
+  /node_modules/@tanstack/react-table/build/lib/index.mjs:
+    rendered: 1391
+    gzip: 578
+    brotli: 493
+  /node_modules/@tanstack/react-virtual/dist/esm/index.js:
+    rendered: 3469
+    gzip: 1248
+    brotli: 1095
+  /node_modules/@tanstack/table-core/build/lib/index.mjs:
+    rendered: 107158
+    gzip: 19940
+    brotli: 17247
+  /node_modules/@tanstack/virtual-core/dist/esm/index.js:
+    rendered: 35545
+    gzip: 8122
+    brotli: 7295
+  /node_modules/@tanstack/virtual-core/dist/esm/lazy-measurements.js:
+    rendered: 857
+    gzip: 488
+    brotli: 440
+  /node_modules/@tanstack/virtual-core/dist/esm/utils.js:
+    rendered: 1052
+    gzip: 557
+    brotli: 476
+  /src/components/ui/data-table.tsx:
+    rendered: 6762
+    gzip: 2086
+    brotli: 1805
+assets/input.js:
+  /src/components/ui/input.tsx:
+    rendered: 841
+    gzip: 471
+    brotli: 413
+assets/label.js:
+  /src/components/ui/label.tsx:
+    rendered: 476
+    gzip: 315
+    brotli: 264
+assets/LevelMatrix.js:
+  /node_modules/lucide-react/dist/esm/icons/refresh-cw.mjs:
+    rendered: 448
+    gzip: 273
+    brotli: 247
+  /src/features/level-matrix/LevelMatrix.tsx:
+    rendered: 6681
+    gzip: 1708
+    brotli: 1482
+assets/play.js:
+  /node_modules/lucide-react/dist/esm/icons/play.mjs:
+    rendered: 261
+    gzip: 222
+    brotli: 197
+assets/progress.js:
+  /src/components/ui/progress.tsx:
+    rendered: 847
+    gzip: 462
+    brotli: 387
+assets/ReadInspector.js:
+  /node_modules/lucide-react/dist/esm/icons/search.mjs:
+    rendered: 264
+    gzip: 210
+    brotli: 193
+  /src/features/read-inspector/ReadInspector.tsx:
+    rendered: 6095
+    gzip: 1454
+    brotli: 1268
+assets/ScenarioLab.js:
+  /node_modules/lucide-react/dist/esm/icons/chevron-down.mjs:
+    rendered: 218
+    gzip: 186
+    brotli: 180
+  /node_modules/lucide-react/dist/esm/icons/power.mjs:
+    rendered: 259
+    gzip: 210
+    brotli: 203
+  /node_modules/lucide-react/dist/esm/icons/zap.mjs:
+    rendered: 331
+    gzip: 249
+    brotli: 225
+  /src/components/ui/select.tsx:
+    rendered: 1449
+    gzip: 653
+    brotli: 532
+  /src/features/scenario-lab/ScenarioLab.tsx:
+    rendered: 10183
+    gzip: 1969
+    brotli: 1692
+assets/WriteWorkbench.js:
+  /src/features/write-workbench/WriteWorkbench.tsx:
+    rendered: 8342
+    gzip: 2051
+    brotli: 1761

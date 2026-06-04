@@ -11,7 +11,8 @@
     "storybook": "storybook dev -p 6006",
     "build:storybook": "storybook build -o storybook-static",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "bundle:stats": "vite build --config vite.config.ts && vite-bundle-visualizer --config vite.config.ts --output dist/stats.html"
   },
   "devDependencies": {
     "@axe-core/react": "^4.11.3",
