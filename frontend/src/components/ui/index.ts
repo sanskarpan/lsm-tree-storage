@@ -42,5 +42,11 @@ export {
 } from "./dropdown-menu";
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./tooltip";
 export { Skeleton } from "./skeleton";
+export { Banner } from "./banner";
+export type { BannerProps } from "./banner";
+export { Progress } from "./progress";
+export type { ProgressProps } from "./progress";
+export { Select } from "./select";
+export type { SelectOption, SelectProps } from "./select";
 export { DataTable } from "./data-table";
 export type { DataTableProps } from "./data-table";

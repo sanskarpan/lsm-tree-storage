@@ -10,7 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Progress } from "../write-workbench/Progress";
+import { Progress } from "@/components/ui/progress";
 import type {
   ActiveCompaction,
   CompactionLevelStat,
@@ -122,6 +122,7 @@ export function CompactionStudio({
                     <Progress
                       value={(item.total_size / maxBytes) * 100}
                       tone={item.total_size / maxBytes > 0.85 ? "danger" : "default"}
+                      label={`Level ${item.level} size`}
                     />
                   </div>
                   <span className="font-mono text-xs text-[var(--fg-muted)]">

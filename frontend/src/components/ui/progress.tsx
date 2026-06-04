@@ -1,9 +1,11 @@
 import { cn } from "@/lib/utils";
 
-export interface ProgressProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface ProgressProps
+  extends Omit<React.HTMLAttributes<HTMLDivElement>, "role"> {
   value: number;
   max?: number;
   tone?: "default" | "success" | "warning" | "danger";
+  label?: string;
 }
 
 const toneToFill: Record<NonNullable<ProgressProps["tone"]>, string> = {
@@ -17,6 +19,7 @@ export function Progress({
   value,
   max = 100,
   tone = "default",
+  label,
   className,
   ...rest
 }: ProgressProps) {
@@ -24,6 +27,7 @@ export function Progress({
   return (
     <div
       role="progressbar"
+      aria-label={label}
       aria-valuenow={value}
       aria-valuemin={0}
       aria-valuemax={max}

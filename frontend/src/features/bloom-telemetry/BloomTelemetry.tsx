@@ -8,7 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Progress } from "../write-workbench/Progress";
+import { Progress } from "@/components/ui/progress";
 
 type BloomTelemetryProps = {
   bloomStats: unknown;
@@ -86,6 +86,7 @@ export function BloomTelemetry({ bloomStats }: BloomTelemetryProps) {
                   ? "warning"
                   : "success"
             }
+            label="Mean FPR"
           />
         </div>
 
@@ -94,7 +95,7 @@ export function BloomTelemetry({ bloomStats }: BloomTelemetryProps) {
             <span className="text-[var(--fg-muted)]">Max bits / key</span>
             <span className="font-mono text-[var(--fg)]">{maxBits}</span>
           </div>
-          <Progress value={Math.min(100, (maxBits / 20) * 100)} />
+          <Progress value={Math.min(100, (maxBits / 20) * 100)} label="Max bits per key" />
         </div>
 
         {stats.length === 0 ? (

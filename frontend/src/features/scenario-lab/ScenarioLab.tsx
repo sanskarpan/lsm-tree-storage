@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
+import { Select } from "@/components/ui/select";
 import type {
   BenchRequest,
   BenchResult,
@@ -47,36 +47,6 @@ function toneToVariant(tone: FeedLine["tone"]) {
     default:
       return "secondary" as const;
   }
-}
-
-function Select({
-  id,
-  value,
-  onChange,
-  children,
-  className,
-}: {
-  id?: string;
-  value: string;
-  onChange: (value: string) => void;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <select
-      id={id}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      className={cn(
-        "flex h-9 w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-1 text-sm text-[var(--fg)]",
-        "shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-1",
-        "disabled:cursor-not-allowed disabled:opacity-50",
-        className,
-      )}
-    >
-      {children}
-    </select>
-  );
 }
 
 export function ScenarioLab({
@@ -215,14 +185,12 @@ export function ScenarioLab({
                   id="scenario-name"
                   value={scenarioName}
                   onChange={setScenarioName}
-                >
-                  <option value="">Select scenario…</option>
-                  {scenarios.map((scenario) => (
-                    <option key={scenario.name} value={scenario.name}>
-                      {scenario.name}
-                    </option>
-                  ))}
-                </Select>
+                  placeholder="Select scenario…"
+                  options={scenarios.map((scenario) => ({
+                    value: scenario.name,
+                    label: scenario.name,
+                  }))}
+                />
               </div>
               <Button
                 size="sm"

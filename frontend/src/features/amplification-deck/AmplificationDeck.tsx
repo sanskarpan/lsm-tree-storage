@@ -8,7 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Progress } from "../write-workbench/Progress";
+import { Progress } from "@/components/ui/progress";
 import type { AmpPoint } from "../../types";
 
 type AmplificationDeckProps = {
@@ -121,6 +121,7 @@ export function AmplificationDeck({ wa, ra, sa, history }: AmplificationDeckProp
                         ? "warning"
                         : "success"
                   }
+                  label={`${meta.label} threshold progress`}
                   className="w-full"
                 />
                 <Badge

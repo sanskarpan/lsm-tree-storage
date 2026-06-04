@@ -6,6 +6,7 @@ import { ReadInspector } from "./features/read-inspector/ReadInspector";
 import { ScenarioLab } from "./features/scenario-lab/ScenarioLab";
 import { WriteWorkbench } from "./features/write-workbench/WriteWorkbench";
 import { AppShell, TopBar } from "./components/layout";
+import { Banner } from "./components/ui/banner";
 import { useDashboardData } from "./hooks/useDashboardData";
 
 export function App() {
@@ -26,7 +27,7 @@ export function App() {
       }
       errorBanner={
         dashboard.error ? (
-          <div className="error-banner">{dashboard.error}</div>
+          <Banner tone="danger">{dashboard.error}</Banner>
         ) : null
       }
     >

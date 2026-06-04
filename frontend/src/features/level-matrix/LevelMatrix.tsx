@@ -11,7 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
-import { Progress } from "../write-workbench/Progress";
+import { Progress } from "@/components/ui/progress";
 import type { CompactionLevelStat, LevelInfo, MemtableSnapshotResponse } from "../../types";
 
 type LevelMatrixProps = {
@@ -69,7 +69,11 @@ export function LevelMatrix({ levels, memtable, compactionStats, onRefresh }: Le
                     {level.num_files} {level.num_files === 1 ? "file" : "files"}
                   </Badge>
                 </div>
-                <Progress value={fill} tone={levelTone(level.level, fill)} />
+                <Progress
+                  value={fill}
+                  tone={levelTone(level.level, fill)}
+                  label={`Level ${level.level} size`}
+                />
                 <p className="font-mono text-xs text-[var(--fg-muted)]">
                   {bytes(level.total_size)}
                 </p>
@@ -126,7 +130,7 @@ export function LevelMatrix({ levels, memtable, compactionStats, onRefresh }: Le
               size: 200,
               cell: (info) => {
                 const fill = (info.getValue<number>() / maxLevelBytes) * 100;
-                return <Progress value={fill} />;
+                return <Progress value={fill} label={`Level ${info.getValue<number>()} fill`} />;
               },
               enableSorting: false,
             },

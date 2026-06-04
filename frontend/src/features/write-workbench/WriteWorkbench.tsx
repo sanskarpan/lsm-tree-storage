@@ -12,7 +12,7 @@ import {
 import { DataTable } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Progress } from "./Progress";
+import { Progress } from "@/components/ui/progress";
 import type { FeedLine, MemtableSnapshotResponse, WalEntriesResponse } from "../../types";
 
 type WriteWorkbenchProps = {
@@ -140,7 +140,7 @@ export function WriteWorkbench({
               {formatBytes(approxBytes)} / {formatBytes(cap)}
             </span>
           </div>
-          <Progress value={fill} />
+          <Progress value={fill} label="Mutable memtable fill" />
           <p className="text-xs text-[var(--fg-muted)]">
             Active log #{memtable?.active_log_number ?? "?"} ·{" "}
             {memtable?.immutables.length ?? 0} immutable
