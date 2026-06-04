@@ -46,7 +46,13 @@ function Gauge({
 
   return (
     <div className="flex flex-col items-center gap-2">
-      <svg viewBox="0 0 120 120" className="h-24 w-24 -rotate-90">
+      <svg
+        viewBox="0 0 120 120"
+        className="h-24 w-24 -rotate-90"
+        role="img"
+        aria-label={`${label} gauge at ${value.toFixed(1)} times`}
+      >
+        <title>{`${label} ${value.toFixed(1)}x`}</title>
         <circle
           cx="60"
           cy="60"
@@ -67,7 +73,10 @@ function Gauge({
         />
       </svg>
       <div className="flex flex-col items-center">
-        <strong className="font-mono text-xl">{value.toFixed(1)}x</strong>
+        <strong className="font-mono text-xl">
+          <span className="sr-only">{`${label} value: `}</span>
+          {value.toFixed(1)}x
+        </strong>
         <span className="text-xs text-[var(--fg-muted)]">{label}</span>
       </div>
     </div>
@@ -157,7 +166,12 @@ export function AmplificationDeck({ wa, ra, sa, history }: AmplificationDeckProp
             viewBox="0 0 100 52"
             preserveAspectRatio="none"
             className="h-32 w-full"
+            role="img"
+            aria-label={`Amplification history, ${points.length} sample${
+              points.length === 1 ? "" : "s"
+            }. Latest: write ${wa.toFixed(1)}x, read ${ra.toFixed(1)}x, space ${sa.toFixed(1)}x.`}
           >
+            <title>Amplification history</title>
             {(["wa", "ra", "sa"] as const).map((channel) => (
               <polyline
                 key={channel}
