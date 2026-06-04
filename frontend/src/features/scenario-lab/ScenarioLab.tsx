@@ -13,6 +13,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import type {
   BenchRequest,
   BenchResult,
@@ -64,6 +73,7 @@ export function ScenarioLab({
   const [benchType, setBenchType] = React.useState("sequential_write");
   const [benchKeys, setBenchKeys] = React.useState(2000);
   const [benchValueSize, setBenchValueSize] = React.useState(128);
+  const [closeDialogOpen, setCloseDialogOpen] = React.useState(false);
 
   return (
     <Card>
@@ -214,14 +224,41 @@ export function ScenarioLab({
                 Remote close behaviour
               </h4>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => void onCloseAttempt()}
-            >
-              <Power className="h-3.5 w-3.5" />
-              Attempt close
-            </Button>
+            <Dialog open={closeDialogOpen} onOpenChange={setCloseDialogOpen}>
+              <DialogTrigger asChild>
+                <Button variant="ghost" size="sm">
+                  <Power className="h-3.5 w-3.5" />
+                  Attempt close
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Attempt a remote close?</DialogTitle>
+                  <DialogDescription>
+                    The /close endpoint is reserved for local lifecycle
+                    management. Remote callers will receive a 403 with the
+                    reason below.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter className="gap-2">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setCloseDialogOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={() => {
+                      setCloseDialogOpen(false);
+                      void onCloseAttempt();
+                    }}
+                  >
+                    Send anyway
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
           <p className="text-sm text-[var(--fg-muted)]">
             {closeMessage ??
