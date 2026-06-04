@@ -40,8 +40,18 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Typecheck frontend
         run: bunx tsc --noEmit
+      - name: Run frontend unit + a11y tests
+        run: bunx vitest run --reporter=verbose
       - name: Build frontend
         run: bunx vite build --config vite.config.ts
+      - name: Build Storybook
+        run: bunx storybook build --quiet -o storybook-static
+      - name: Upload Storybook artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: storybook-static
+          path: frontend/storybook-static
+          retention-days: 7
       - name: Audit frontend deps
         run: bun audit
 
