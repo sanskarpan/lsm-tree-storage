@@ -46,6 +46,8 @@ jobs:
         run: bunx vite build --config vite.config.ts
       - name: Build Storybook
         run: bunx storybook build --quiet -o storybook-static
+      - name: Check bundle budgets
+        run: bun run bundle:check
       - name: Upload Storybook artifact
         uses: actions/upload-artifact@v4
         with:

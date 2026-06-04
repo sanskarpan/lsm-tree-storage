@@ -12,7 +12,8 @@
     "build:storybook": "storybook build -o storybook-static",
     "test": "vitest run",
     "test:watch": "vitest",
-    "bundle:stats": "vite build --config vite.config.ts && vite-bundle-visualizer --config vite.config.ts --output dist/stats.html"
+    "bundle:stats": "vite build --config vite.config.ts && vite-bundle-visualizer --config vite.config.ts --output dist/stats.html",
+    "bundle:check": "vite build --config vite.config.ts && bun run scripts/check-bundle-budget.ts"
   },
   "devDependencies": {
     "@axe-core/react": "^4.11.3",
