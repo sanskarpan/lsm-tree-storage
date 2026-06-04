@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Moon, Sun, Monitor, Rows3, Rows4 } from "lucide-react";
+import { Moon, Sun, Rows3, Rows4 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -123,10 +123,8 @@ export function TopBar({
             <Button variant="ghost" size="icon" aria-label="Theme">
               {theme === "dark" ? (
                 <Moon className="h-4 w-4" />
-              ) : theme === "light" ? (
-                <Sun className="h-4 w-4" />
               ) : (
-                <Monitor className="h-4 w-4" />
+                <Sun className="h-4 w-4" />
               )}
             </Button>
           </DropdownMenuTrigger>
