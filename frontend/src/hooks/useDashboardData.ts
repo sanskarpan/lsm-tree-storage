@@ -1,59 +1,49 @@
-import { useDashboardActions } from "./dashboard/useDashboardActions";
-import { useEventStream } from "./dashboard/useEventStream";
-import { useReadTrace } from "./dashboard/useReadTrace";
-import { useSnapshotState } from "./dashboard/useSnapshotState";
+import { useEffect } from "react";
+
+import { initDashboardStore, teardownDashboardStore } from "../store/dashboard-store";
+import { useDashboardStore } from "../store/dashboard-store";
 
 export function useDashboardData() {
-  const snapshots = useSnapshotState();
-  const events = useEventStream({
-    refreshSnapshot: snapshots.refreshSnapshot,
-    setStats: snapshots.setStats,
-  });
-  const trace = useReadTrace({
-    eventsRef: events.eventsRef,
-    memtable: snapshots.memtable,
-    levels: snapshots.levels,
-    setError: snapshots.setError,
-  });
-  const actions = useDashboardActions({
-    refreshSnapshot: snapshots.refreshSnapshot,
-    addOpsFeed: events.addOpsFeed,
-    addCompactionFeed: events.addCompactionFeed,
-  });
+  useEffect(() => {
+    initDashboardStore();
+    return () => {
+      teardownDashboardStore();
+    };
+  }, []);
 
-  return {
-    connected: events.connected,
-    runtime: snapshots.runtime,
-    stats: snapshots.stats,
-    config: snapshots.config,
-    levels: snapshots.levels,
-    walEntries: snapshots.walEntries,
-    memtable: snapshots.memtable,
-    compactionStats: snapshots.compactionStats,
-    scenarios: snapshots.scenarios,
-    bloomStats: snapshots.bloomStats,
-    writeFeed: events.writeFeed,
-    compactionFeed: events.compactionFeed,
-    opsFeed: events.opsFeed,
-    readTrace: trace.readTrace,
-    queryPending: trace.queryPending,
-    benchmarkResult: actions.benchmarkResult,
-    closeMessage: actions.closeMessage,
-    error: snapshots.error,
-    sessionWrites: events.sessionWrites,
-    sessionFlushes: events.sessionFlushes,
-    sessionCompactions: events.sessionCompactions,
-    amplification: events.amplification,
-    ampHistory: events.ampHistory,
-    activeCompaction: events.activeCompaction,
-    refreshSnapshot: snapshots.refreshSnapshot,
-    runReadTrace: trace.runReadTrace,
-    handlePut: actions.handlePut,
-    handleDelete: actions.handleDelete,
-    handleStyleChange: actions.handleStyleChange,
-    handleForceCompaction: actions.handleForceCompaction,
-    handleScenarioRun: actions.handleScenarioRun,
-    handleBenchRun: actions.handleBenchRun,
-    handleCloseAttempt: actions.handleCloseAttempt,
-  };
+  return useDashboardStore((state) => ({
+    connected: state.connected,
+    runtime: state.runtime,
+    stats: state.stats,
+    config: state.config,
+    levels: state.levels,
+    walEntries: state.walEntries,
+    memtable: state.memtable,
+    compactionStats: state.compactionStats,
+    scenarios: state.scenarios,
+    bloomStats: state.bloomStats,
+    writeFeed: state.writeFeed,
+    compactionFeed: state.compactionFeed,
+    opsFeed: state.opsFeed,
+    readTrace: state.readTrace,
+    queryPending: state.queryPending,
+    benchmarkResult: state.benchmarkResult,
+    closeMessage: state.closeMessage,
+    error: state.error,
+    sessionWrites: state.sessionWrites,
+    sessionFlushes: state.sessionFlushes,
+    sessionCompactions: state.sessionCompactions,
+    amplification: state.amplification,
+    ampHistory: state.ampHistory,
+    activeCompaction: state.activeCompaction,
+    refreshSnapshot: state.refreshSnapshot,
+    runReadTrace: state.runReadTrace,
+    handlePut: state.handlePut,
+    handleDelete: state.handleDelete,
+    handleStyleChange: state.handleStyleChange,
+    handleForceCompaction: state.handleForceCompaction,
+    handleScenarioRun: state.handleScenarioRun,
+    handleBenchRun: state.handleBenchRun,
+    handleCloseAttempt: state.handleCloseAttempt,
+  }));
 }
