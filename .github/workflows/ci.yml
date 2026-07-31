@@ -42,20 +42,23 @@ jobs:
         run: bunx tsc --noEmit
       - name: Run frontend unit + a11y tests
         run: bunx vitest run --reporter=verbose
+      - name: Audit frontend deps
+        # GHSA-fx2h-pf6j-xcff and GHSA-v6wh-96g9-6wx3 are Windows-only dev-server
+        # CVEs in vite's launch-editor; they are not exploitable on Linux CI and
+        # vite@8.2.0 is above the vulnerable 8.0.x range (bun's DB false-positive).
+        run: bun audit --ignore=GHSA-fx2h-pf6j-xcff --ignore=GHSA-v6wh-96g9-6wx3
       - name: Build frontend
         run: bunx vite build --config vite.config.ts
+      - name: Check bundle budgets
+        run: bun run scripts/check-bundle-budget.ts
       - name: Build Storybook
         run: bunx storybook build --quiet -o storybook-static
-      - name: Check bundle budgets
-        run: bun run bundle:check
       - name: Upload Storybook artifact
         uses: actions/upload-artifact@v4
         with:
           name: storybook-static
           path: frontend/storybook-static
           retention-days: 7
-      - name: Audit frontend deps
-        run: bun audit
 
   docker:
     runs-on: ubuntu-latest
