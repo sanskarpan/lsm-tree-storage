@@ -12,7 +12,7 @@ RUN bun run build:client
 
 FROM oven/bun:1.3.10@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e
 
-RUN adduser --system --no-create-home --uid 1001 appuser
+RUN useradd --system --no-create-home --uid 1001 appuser
 
 WORKDIR /app
 COPY --from=build /app /app
