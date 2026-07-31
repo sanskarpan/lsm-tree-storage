@@ -4,8 +4,7 @@ backups-test/
 frontend/dist/
 frontend/node_modules/
 frontend/.cursor/
-loadtest
-*.log
+/loadtest*.log
 *.sst
 *.tar.gz
 *.tar.gz.sha256
