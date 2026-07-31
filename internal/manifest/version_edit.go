@@ -90,8 +90,12 @@ func DecodeVersionEdit(data []byte) (VersionEdit, error) {
 	}
 
 	var logNumber, nextFileID uint64
-	_ = binary.Read(r, binary.LittleEndian, &logNumber)
-	_ = binary.Read(r, binary.LittleEndian, &nextFileID)
+	if err := binary.Read(r, binary.LittleEndian, &logNumber); err != nil {
+		return VersionEdit{}, ErrCorruptManifest
+	}
+	if err := binary.Read(r, binary.LittleEndian, &nextFileID); err != nil {
+		return VersionEdit{}, ErrCorruptManifest
+	}
 
 	return VersionEdit{
 		Type:       EditType(editType),
