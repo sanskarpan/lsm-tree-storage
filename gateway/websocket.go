@@ -4,7 +4,6 @@ package gateway
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -97,13 +96,10 @@ func (h *WSHub) authorize(r *http.Request) bool {
 	if h.apiToken == "" {
 		return true
 	}
-	if tokenAuthorized(h.apiToken, parseBearerToken(r.Header.Get("Authorization"))) {
-		return true
-	}
-	if tokenAuthorized(h.apiToken, strings.TrimSpace(r.URL.Query().Get("access_token"))) {
-		return true
-	}
-	return false
+	// The token must travel in the Authorization header only. Query-param
+	// credentials (previously ?access_token=...) end up in proxy/access logs
+	// and are no longer accepted.
+	return tokenAuthorized(h.apiToken, parseBearerToken(r.Header.Get("Authorization")))
 }
 
 // ServeWS upgrades the HTTP connection to WebSocket and registers the client with the hub.
