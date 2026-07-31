@@ -484,3 +484,19 @@ func TestWSHub_RequiresAuthWhenConfigured(t *testing.T) {
 	require.NotNil(t, resp)
 	defer conn.Close()
 }
+
+// The token must never be accepted from the URL: query strings are logged
+// by proxies and load balancers, so credentials must travel in the
+// Authorization header only.
+func TestWSHub_RejectsTokenInQueryParam(t *testing.T) {
+	_, srv := openGatewayTestServerWithToken(t, nil, "secret-token")
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws?access_token=secret-token"
+	dialer := websocket.Dialer{}
+
+	_, resp, err := dialer.Dial(wsURL, http.Header{"Origin": []string{srv.URL}})
+	require.Error(t, err)
+	if resp != nil {
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	}
+}

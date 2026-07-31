@@ -234,16 +234,23 @@ function backendFailureResponse(error: unknown) {
 }
 
 function backendWSURL() {
-  const url = new URL(BACKEND_WS);
-  if (BACKEND_TOKEN) {
-    url.searchParams.set("access_token", BACKEND_TOKEN);
-  }
-  return url.toString();
+  // The token must not appear in the URL: query params are logged by
+  // proxies. It travels in the Authorization header instead (see
+  // connectBackendWS), matching the REST API's auth mechanism.
+  return BACKEND_WS;
 }
 
 // Connect to backend WebSocket and fan out to frontend clients
 function connectBackendWS() {
-  const ws = new WebSocket(backendWSURL());
+  // Bun's WebSocket client accepts { headers } via Bun.WebSocketOptions, but
+  // the DOM lib's constructor overloads shadow the options variant in TS, so
+  // type it through a narrow constructor alias.
+  const WSWithHeaders = WebSocket as unknown as {
+    new (url: string, init: { headers: Record<string, string> }): WebSocket;
+  };
+  const ws = BACKEND_TOKEN
+    ? new WSWithHeaders(backendWSURL(), { headers: { Authorization: `Bearer ${BACKEND_TOKEN}` } })
+    : new WebSocket(backendWSURL());
   ws.onopen = () => {
     backendReconnectDelayMs = 1000;
   };
