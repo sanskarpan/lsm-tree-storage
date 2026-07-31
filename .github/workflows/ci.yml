@@ -70,8 +70,11 @@ jobs:
         run: docker build -f frontend/Dockerfile -t lsm-frontend:test ./frontend
       - name: Validate compose config
         env:
-          # docker-compose.yml interpolates API_TOKEN with the :? guard; CI
-          # has no secret, so provide a dummy for validation only. Runtime
-          # still requires the real token via .env or the environment.
+          # docker-compose.yml interpolates API_TOKEN/METRICS_TOKEN/BFF_BASIC_AUTH
+          # with the :? guard; CI has no secrets, so provide dummies for
+          # validation only. Runtime still requires the real values via .env
+          # or the environment.
           API_TOKEN: ci-validation-dummy
+          METRICS_TOKEN: ci-validation-dummy
+          BFF_BASIC_AUTH: ci-validation-dummy
         run: docker compose config
