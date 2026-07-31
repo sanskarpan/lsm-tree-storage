@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lsm-storage.backendServiceName" . }}
+  labels:
+    {{- include "lsm-storage.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  type: {{ .Values.service.backend.type }}
+  selector:
+    {{- include "lsm-storage.backendSelectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.backend.port }}
+      targetPort: http
+      protocol: TCP

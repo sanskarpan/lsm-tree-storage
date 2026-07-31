@@ -1,0 +1,13 @@
+apiVersion: v2
+name: lsm-storage
+description: A production-grade LSM-Tree storage engine with Raft clustering and React dashboard
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - storage
+  - lsm
+  - database
+  - raft
+maintainers:
+  - name: LSM Storage Team

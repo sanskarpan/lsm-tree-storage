@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lsm-storage.fullname" . }}-frontend
+  labels:
+    {{- include "lsm-storage.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "lsm-storage.frontendSelectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "lsm-storage.frontendSelectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "lsm-storage.serviceAccountName" . }}
+      {{- end }}
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: frontend
+          image: "{{ .Values.image.frontend.repository }}:{{ .Values.image.frontend.tag }}"
+          imagePullPolicy: {{ .Values.image.frontend.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.frontendSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.frontend.port }}
+              protocol: TCP
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: {{ .Values.service.frontend.port | quote }}
+            - name: BACKEND_URL
+              value: {{ printf "http://%s:%d" (include "lsm-storage.backendServiceName" .) (int .Values.service.backend.port) | quote }}
+            - name: BACKEND_WS_URL
+              value: {{ printf "ws://%s:%d/ws" (include "lsm-storage.backendServiceName" .) (int .Values.service.backend.port) | quote }}
+            - name: ALLOW_REMOTE_BFF
+              value: "1"
+            - name: SKIP_CLIENT_BUILD
+              value: "1"
+            - name: API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lsm-storage.secretName" . }}
+                  key: API_TOKEN
+            - name: BFF_BASIC_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lsm-storage.secretName" . }}
+                  key: BFF_BASIC_AUTH
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources.frontend | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

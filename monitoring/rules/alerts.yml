@@ -1,0 +1,260 @@
+---
+# Prometheus alert rules for the LSM-Tree storage engine.
+#
+# Metric reference (all exposed by /metrics on the backend):
+#   lsm_http_requests_total{method, route, status}    — request counter
+#   lsm_http_request_duration_seconds{method, route}  — latency histogram (default buckets)
+#   lsm_events_total{type}                            — engine event counter
+#   lsm_engine_ready                                  — 1 if engine is healthy
+#   lsm_engine_total_sst_files                        — total SSTable count across all levels
+#   lsm_engine_total_sst_bytes                        — total SSTable bytes
+#   lsm_engine_memtable_size_bytes                    — mutable memtable size
+#   lsm_engine_immutables                             — immutable memtables waiting to flush
+#   lsm_engine_wal_files                              — WAL file count
+#   lsm_cache_hit_rate                                — block-cache hit rate (0–1)
+#   process_resident_memory_bytes                     — Go process RSS (from ProcessCollector)
+#   go_goroutines                                     — goroutine count
+#
+# NOTE: lsm_engine_l0_sst_files and lsm_bg_error are not yet emitted by the engine.
+# The alerts that reference them are correct but will remain pending until those
+# gauges are added to internal/observability/metrics.go.
+
+groups:
+
+  # ── Availability ─────────────────────────────────────────────────────────────
+  - name: lsm.availability
+    rules:
+
+      - alert: LSMBackendDown
+        expr: up{job="lsm-storage"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "LSM backend is unreachable"
+          description: >
+            Prometheus cannot scrape the LSM backend at {{ $labels.instance }}.
+            The service has been down for more than 1 minute.
+          runbook_url: "https://runbooks.example.com/lsm/LSMBackendDown"
+
+      - alert: LSMHighErrorRate
+        expr: |
+          (
+            sum(rate(lsm_http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(lsm_http_requests_total[5m]))
+          ) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP 5xx error rate (> 1%)"
+          description: >
+            {{ $value | humanizePercentage }} of requests returned 5xx over the
+            last 5 minutes (threshold: 1%).
+          runbook_url: "https://runbooks.example.com/lsm/LSMHighErrorRate"
+
+      - alert: LSMBgErrorActive
+        # Requires lsm_bg_error gauge (not yet emitted — add to metrics.go)
+        expr: lsm_bg_error == 1
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "LSM background error / flush circuit-breaker tripped"
+          description: >
+            The engine has set its background error flag. The flush circuit-breaker
+            is tripped, which will block further writes. Immediate operator intervention required.
+          runbook_url: "https://runbooks.example.com/lsm/LSMBgErrorActive"
+
+  # ── Latency ──────────────────────────────────────────────────────────────────
+  - name: lsm.latency
+    rules:
+
+      - alert: LSMHighWriteLatencyP99
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(lsm_http_request_duration_seconds_bucket{route=~"/db/put|/db/batch"}[5m])) by (le)
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "P99 write latency exceeds 100 ms"
+          description: >
+            99th-percentile write latency is {{ $value | humanizeDuration }}
+            (threshold: 100 ms). Check for L0 compaction stalls, WAL sync delays,
+            or memtable pressure.
+          runbook_url: "https://runbooks.example.com/lsm/LSMHighWriteLatencyP99"
+
+      - alert: LSMHighReadLatencyP99
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(lsm_http_request_duration_seconds_bucket{route=~"/db/get|/db/scan"}[5m])) by (le)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "P99 read latency exceeds 50 ms"
+          description: >
+            99th-percentile read latency is {{ $value | humanizeDuration }}
+            (threshold: 50 ms). Check L0 file count, block-cache hit rate,
+            and bloom filter effectiveness.
+          runbook_url: "https://runbooks.example.com/lsm/LSMHighReadLatencyP99"
+
+  # ── Storage Health ────────────────────────────────────────────────────────────
+  - name: lsm.storage
+    rules:
+
+      - alert: LSML0FileCountHigh
+        # Requires lsm_engine_l0_sst_files gauge (not yet emitted — add to metrics.go).
+        # As a temporary proxy, lsm_engine_total_sst_files counts all SSTables.
+        expr: lsm_engine_l0_sst_files > 8
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "L0 SSTable count approaching compaction trigger (> 8)"
+          description: >
+            There are {{ $value }} L0 SSTable files (warning at 8, compaction trigger
+            at 12). Read amplification is growing and write stall risk is elevated.
+          runbook_url: "https://runbooks.example.com/lsm/LSML0FileCountHigh"
+
+      - alert: LSML0FileCountCritical
+        # Requires lsm_engine_l0_sst_files gauge (not yet emitted — add to metrics.go).
+        expr: lsm_engine_l0_sst_files > 10
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "L0 SSTable count critical — write stall imminent"
+          description: >
+            There are {{ $value }} L0 SSTable files. The engine will stall writes
+            at 12 files (Level0StopWritesTrigger). Manual compaction or throughput
+            reduction is required immediately.
+          runbook_url: "https://runbooks.example.com/lsm/LSML0FileCountCritical"
+
+      - alert: LSMFlushQueueDeep
+        # lsm_engine_immutables = immutable memtables waiting to be flushed to L0.
+        expr: lsm_engine_immutables > 4
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Flush queue depth > 4 for more than 2 minutes"
+          description: >
+            {{ $value }} immutable memtables are queued for flushing and have been
+            accumulating for > 2 minutes. The flush goroutine may be stalled by
+            slow disk I/O or compaction backpressure.
+          runbook_url: "https://runbooks.example.com/lsm/LSMFlushQueueDeep"
+
+      - alert: LSMWALFilesHigh
+        expr: lsm_engine_wal_files > 5
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "WAL file count high (> 5)"
+          description: >
+            There are {{ $value }} WAL files. WAL files are retired when the
+            corresponding memtable is flushed; a growing count indicates the flush
+            path is not keeping up with ingestion.
+          runbook_url: "https://runbooks.example.com/lsm/LSMWALFilesHigh"
+
+      - alert: LSMMemtableSizeHigh
+        # Default MemTableSize is 64 MiB (67,108,864 bytes); 80% = 53,687,091 bytes.
+        # Adjust the threshold if MemTableSize is configured differently.
+        expr: lsm_engine_memtable_size_bytes > 53687091
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Mutable memtable at > 80% of MemTableSize"
+          description: >
+            Mutable memtable is {{ $value | humanize1024 }}B, exceeding 80% of the
+            64 MiB default MemTableSize. A rotation/flush will occur soon; sustained
+            pressure can stall writes.
+          runbook_url: "https://runbooks.example.com/lsm/LSMMemtableSizeHigh"
+
+      - alert: LSMImmutableCountHigh
+        expr: lsm_engine_immutables > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Multiple immutable memtables persisting for > 5 minutes"
+          description: >
+            {{ $value }} immutable memtables have been present for over 5 minutes.
+            The flush goroutine may be blocked. Check disk I/O and L0 file count.
+          runbook_url: "https://runbooks.example.com/lsm/LSMImmutableCountHigh"
+
+  # ── Compaction ───────────────────────────────────────────────────────────────
+  - name: lsm.compaction
+    rules:
+
+      - alert: LSMCompactionLagging
+        # Without per-level size metrics, lsm_engine_total_sst_bytes is used as a
+        # proxy. A future lsm_engine_level_sst_bytes{level="1"} gauge would be more
+        # precise. Threshold: 10 GiB × 90% = 9.7 GiB — adjust for your capacity.
+        expr: lsm_engine_total_sst_bytes > 9663676416
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Total SSTable size approaching configured level capacity (> 90%)"
+          description: >
+            Total SSTable data is {{ $value | humanize1024 }}B (threshold: ~9.7 GiB).
+            Compaction may not be keeping up. Consider increasing compaction concurrency
+            or write rate limiting.
+          runbook_url: "https://runbooks.example.com/lsm/LSMCompactionLagging"
+
+      - alert: LSMNoCompactionActivity
+        # Fires when no compaction events have been recorded for 30 minutes
+        # while the total SSTable count is elevated.
+        expr: |
+          rate(lsm_events_total{type="compaction"}[30m]) == 0
+          and on() lsm_engine_total_sst_files > 2
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No compaction activity while SSTable count is elevated"
+          description: >
+            No compaction events have occurred in the last 30 minutes, but there are
+            {{ $value }} SSTable files. The compaction goroutine may be stalled or
+            erroring silently.
+          runbook_url: "https://runbooks.example.com/lsm/LSMNoCompactionActivity"
+
+  # ── Resources ────────────────────────────────────────────────────────────────
+  - name: lsm.resources
+    rules:
+
+      - alert: LSMDiskUsageHigh
+        # Uses lsm_engine_total_sst_bytes as a proxy for data-directory disk usage.
+        # For accurate filesystem-level monitoring, add a node_exporter and use
+        # node_filesystem_avail_bytes{mountpoint="/app/data"}.
+        # Threshold: 8 GiB; adjust for your provisioned storage.
+        expr: lsm_engine_total_sst_bytes > 8589934592
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LSM data directory disk usage is high (> 8 GiB SSTable data)"
+          description: >
+            Total SSTable data is {{ $value | humanize1024 }}B. For real filesystem
+            monitoring deploy a node_exporter alongside the backend.
+          runbook_url: "https://runbooks.example.com/lsm/LSMDiskUsageHigh"
+
+      - alert: LSMHighMemoryUsage
+        expr: process_resident_memory_bytes{job="lsm-storage"} > 2147483648
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LSM backend process RSS exceeds 2 GiB"
+          description: >
+            Process resident memory is {{ $value | humanize1024 }}B (threshold: 2 GiB).
+            Check block-cache size (lsm_cache_entries), memtable footprint, and
+            goroutine leak potential (go_goroutines).
+          runbook_url: "https://runbooks.example.com/lsm/LSMHighMemoryUsage"

@@ -1,0 +1,115 @@
+---
+# Alertmanager configuration for the LSM-Tree storage engine monitoring stack.
+#
+# Replace the placeholder values before deploying to production:
+#   - SMTP: update smtp_smarthost, smtp_from, smtp_auth_*, and the email 'to' addresses.
+#   - Webhook: update the PagerDuty / Slack / OpsGenie URL.
+#   - Set ALERTMANAGER_SMTP_PASSWORD / ALERTMANAGER_WEBHOOK_URL as env vars or secrets.
+
+global:
+  # How long to wait before sending a notification again if not resolved.
+  resolve_timeout: 5m
+
+  smtp_smarthost: 'smtp.example.com:587'
+  smtp_from: 'alertmanager@example.com'
+  smtp_auth_username: 'alertmanager@example.com'
+  smtp_auth_password: '${ALERTMANAGER_SMTP_PASSWORD}'
+  smtp_require_tls: true
+
+# Notification templates
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# The root route — every alert goes through this tree.
+route:
+  group_by: ['alertname', 'severity', 'slo']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'default-webhook'
+
+  routes:
+    # Critical alerts get paged immediately with a short repeat interval.
+    - matchers:
+        - severity = "critical"
+      receiver: 'critical-pager'
+      group_wait: 0s
+      repeat_interval: 1h
+      continue: true
+
+    # SLO burn-rate alerts have their own routing.
+    - matchers:
+        - slo =~ ".+"
+      receiver: 'slo-channel'
+      group_by: ['slo', 'burn_rate', 'severity']
+      group_wait: 30s
+      repeat_interval: 2h
+      continue: false
+
+    # Warning alerts go to the ops email/channel.
+    - matchers:
+        - severity = "warning"
+      receiver: 'ops-email'
+      repeat_interval: 8h
+
+receivers:
+  # Default catch-all: webhook (e.g. Slack, OpsGenie generic webhook)
+  - name: 'default-webhook'
+    webhook_configs:
+      - url: '${ALERTMANAGER_WEBHOOK_URL:-http://localhost:9999/webhook}'
+        send_resolved: true
+        http_config:
+          follow_redirects: true
+
+  # Critical page: replace with your PagerDuty / Opsgenie / VictorOps integration
+  - name: 'critical-pager'
+    webhook_configs:
+      - url: '${ALERTMANAGER_PAGERDUTY_URL:-http://localhost:9999/critical}'
+        send_resolved: true
+    # Optionally add a PagerDuty receiver:
+    # pagerduty_configs:
+    #   - routing_key: '${PAGERDUTY_INTEGRATION_KEY}'
+    #     severity: 'critical'
+    #     description: '{{ .CommonAnnotations.summary }}'
+    email_configs:
+      - to: 'oncall@example.com'
+        send_resolved: true
+        headers:
+          Subject: '[CRITICAL] {{ .CommonAnnotations.summary }}'
+
+  # SLO burn-rate alerts: Slack or a dedicated SLO channel
+  - name: 'slo-channel'
+    webhook_configs:
+      - url: '${ALERTMANAGER_SLO_WEBHOOK_URL:-http://localhost:9999/slo}'
+        send_resolved: true
+    # Optionally use Slack:
+    # slack_configs:
+    #   - api_url: '${SLACK_WEBHOOK_URL}'
+    #     channel: '#lsm-slo-alerts'
+    #     send_resolved: true
+    #     title: '{{ .Status | toUpper }}: {{ .CommonAnnotations.summary }}'
+    #     text: '{{ .CommonAnnotations.description }}'
+
+  # Warning alerts: ops email
+  - name: 'ops-email'
+    email_configs:
+      - to: 'ops@example.com'
+        send_resolved: true
+        headers:
+          Subject: '[WARNING] {{ .CommonAnnotations.summary }}'
+
+# Inhibition rules prevent noisy child alerts when a root cause is already firing.
+inhibit_rules:
+  # Suppress warning-severity alerts when the same alertname is already critical.
+  - source_matchers:
+      - severity = "critical"
+    target_matchers:
+      - severity = "warning"
+    equal: ['alertname']
+
+  # Suppress all storage/latency/SLO alerts when the backend is down.
+  - source_matchers:
+      - alertname = "LSMBackendDown"
+    target_matchers:
+      - job = "lsm-storage"
+    equal: []

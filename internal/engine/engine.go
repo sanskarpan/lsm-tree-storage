@@ -3,6 +3,7 @@ package engine
 
 import (
 	"bytes"
+	"container/heap"
 	"errors"
 	"fmt"
 	"log"
@@ -114,11 +115,10 @@ type LSMEngine struct {
 	logNumber  uint64
 	seqNo      uint64
 
-	// SSTable readers by fileID
-	// readersMu is held for the ENTIRE duration of any SSTable read to prevent
-	// use-after-free when the compaction worker removes/closes readers.
-	readers   map[uint64]*sstable.SSTableReader
-	readersMu sync.RWMutex
+	// tc is the bounded LRU table cache of open SSTable file descriptors.
+	// It enforces MaxOpenFiles and uses reference counting so that readers
+	// cannot be closed while an in-progress Get/Scan/compaction holds a pin.
+	tc *tableCache
 
 	// Manifest
 	manifest *manifest.Manifest
@@ -186,6 +186,9 @@ func Open(cfg Config) (*LSMEngine, error) {
 	if cfg.WriteStallTimeout == 0 {
 		cfg.WriteStallTimeout = 30 * time.Second
 	}
+	if cfg.MaxOpenFiles <= 0 {
+		cfg.MaxOpenFiles = 1000
+	}
 
 	if err := os.MkdirAll(cfg.DataDir, 0755); err != nil {
 		return nil, err
@@ -197,7 +200,7 @@ func Open(cfg Config) (*LSMEngine, error) {
 	e := &LSMEngine{
 		cfg:            cfg,
 		dataDir:        cfg.DataDir,
-		readers:        make(map[uint64]*sstable.SSTableReader),
+		tc:             newTableCache(cfg.MaxOpenFiles, blockCache, bus),
 		bus:            bus,
 		cache:          blockCache,
 		flushQueue:     make(chan *immutableMemtable, 16),
@@ -266,11 +269,9 @@ func (e *LSMEngine) recover() error {
 			if _, err := os.Stat(filePath); os.IsNotExist(err) {
 				return fmt.Errorf("missing SSTable: %s", filePath)
 			}
-			reader, err := sstable.NewSSTableReader(filePath, *meta, e.cache, e.bus)
-			if err != nil {
+			if err := e.tc.register(meta.FileID, *meta, filePath); err != nil {
 				return fmt.Errorf("open sstable %s: %w", filePath, err)
 			}
-			e.registerReader(meta.FileID, reader)
 		}
 	}
 
@@ -405,12 +406,10 @@ func (e *LSMEngine) recoverFlushOversizedMemtable() error {
 	_ = builder.Close()
 
 	meta.FilePath = path
-	reader, err := sstable.NewSSTableReader(path, meta, e.cache, e.bus)
-	if err != nil {
+	if err := e.tc.register(fileID, meta, path); err != nil {
 		_ = os.Remove(path)
 		return fmt.Errorf("open sstable reader: %w", err)
 	}
-	e.registerReader(fileID, reader)
 
 	if err := e.manifest.Apply(manifest.VersionEdit{
 		Type:     manifest.EditAddSSTable,
@@ -420,7 +419,7 @@ func (e *LSMEngine) recoverFlushOversizedMemtable() error {
 		FirstKey: meta.FirstKey,
 		LastKey:  meta.LastKey,
 	}); err != nil {
-		e.unregisterReader(fileID)
+		e.tc.unregister(fileID)
 		_ = os.Remove(path)
 		return fmt.Errorf("manifest apply: %w", err)
 	}
@@ -782,9 +781,18 @@ func (e *LSMEngine) Get(key []byte) ([]byte, error) {
 		}
 	}
 
-	// 3. SSTables — hold readersMu.RLock for the duration to prevent
-	//    use-after-free if the compaction worker closes a reader concurrently.
+	// 3. SSTables — pin each reader via tc.get() for the duration of the call so
+	//    that compaction cannot close a reader while we are reading from it.
 	version := e.manifest.Current()
+
+	// Collect all release funcs; call them when Get() returns so that any
+	// values returned to the caller are still backed by live mmap memory.
+	var releases []func()
+	defer func() {
+		for _, rel := range releases {
+			rel()
+		}
+	}()
 
 	// L0: newest first (highest fileID first)
 	l0 := make([]*sstable.SSTableMeta, len(version.Levels[0]))
@@ -793,14 +801,12 @@ func (e *LSMEngine) Get(key []byte) ([]byte, error) {
 		return l0[i].FileID > l0[j].FileID
 	})
 
-	e.readersMu.RLock()
-	defer e.readersMu.RUnlock()
-
 	for _, meta := range l0 {
-		reader, ok := e.readers[meta.FileID]
+		reader, release, ok := e.tc.get(meta.FileID)
 		if !ok {
 			continue
 		}
+		releases = append(releases, release)
 		val, found, err := reader.Get(key, readSeqNo)
 		if err != nil {
 			return nil, err
@@ -826,10 +832,11 @@ func (e *LSMEngine) Get(key []byte) ([]byte, error) {
 		if meta == nil {
 			continue
 		}
-		reader, ok := e.readers[meta.FileID]
+		reader, release, ok := e.tc.get(meta.FileID)
 		if !ok {
 			continue
 		}
+		releases = append(releases, release)
 		val, found, err := reader.Get(key, readSeqNo)
 		if err != nil {
 			return nil, err
@@ -848,25 +855,6 @@ func (e *LSMEngine) Get(key []byte) ([]byte, error) {
 	return nil, ErrNotFound
 }
 
-func (e *LSMEngine) registerReader(fileID uint64, reader *sstable.SSTableReader) {
-	e.readersMu.Lock()
-	defer e.readersMu.Unlock()
-	e.readers[fileID] = reader
-}
-
-// unregisterReader removes a reader from the map and closes it.
-// It acquires readersMu.Lock, which blocks until all in-progress reads complete.
-func (e *LSMEngine) unregisterReader(fileID uint64) {
-	e.readersMu.Lock()
-	reader, ok := e.readers[fileID]
-	if ok {
-		delete(e.readers, fileID)
-	}
-	e.readersMu.Unlock()
-	if ok {
-		_ = reader.Close()
-	}
-}
 
 // ForceFlush rotates the mutable MemTable and blocks until all queued flushes complete.
 func (e *LSMEngine) ForceFlush() {
@@ -930,12 +918,7 @@ func (e *LSMEngine) Close() error {
 		}
 
 		// Close all readers (safe: no background workers running now)
-		e.readersMu.Lock()
-		for _, r := range e.readers {
-			_ = r.Close()
-		}
-		e.readers = nil
-		e.readersMu.Unlock()
+		e.tc.close()
 	})
 	return err
 }
@@ -1143,10 +1126,57 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
+// scanItem is one in-flight entry in the ScanWithError merge heap.
+type scanItem struct {
+	userKey  []byte
+	value    []byte
+	deleted  bool
+	priority int    // lower number = higher priority (wins on equal userKey)
+	seqNo    uint64 // used for informational purposes; priority drives ordering
+	next     func() (*scanItem, error)
+}
+
+// scanHeap is a min-heap of *scanItem ordered by userKey ascending,
+// then by priority ascending (lower priority number = higher importance).
+type scanHeap []*scanItem
+
+func (h scanHeap) Len() int { return len(h) }
+func (h scanHeap) Less(i, j int) bool {
+	cmp := bytes.Compare(h[i].userKey, h[j].userKey)
+	if cmp != 0 {
+		return cmp < 0
+	}
+	return h[i].priority < h[j].priority
+}
+func (h scanHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
+func (h *scanHeap) Push(x interface{}) { *h = append(*h, x.(*scanItem)) }
+func (h *scanHeap) Pop() interface{} {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	old[n-1] = nil
+	*h = old[:n-1]
+	return x
+}
+
 // Scan returns up to limit key-value pairs whose keys fall in [start, end).
 // Empty start means "from beginning"; empty end means "to end".
-// Performs a snapshot read, deduplicating across all levels.
+// Uses a streaming priority merge heap so only O(sources) items are held in
+// memory at once regardless of dataset size. Any SSTable iterator error is
+// logged; partial results collected so far are returned.
 func (e *LSMEngine) Scan(start, end []byte, limit int) [][2]string {
+	results, err := e.ScanWithError(start, end, limit)
+	if err != nil {
+		log.Printf("scan error (partial results returned): %v", err)
+	}
+	return results
+}
+
+// ScanWithError is like Scan but returns any SSTable block-read error
+// encountered during iteration. On error the partial results accumulated so
+// far are returned together with the error.
+func (e *LSMEngine) ScanWithError(start, end []byte, limit int) ([][2]string, error) {
+	// Snapshot memtables under the engine lock.
 	e.mu.RLock()
 	memEntries := e.memTable.Entries()
 	immEntries := make([][]memtable.Entry, len(e.immutables))
@@ -1157,150 +1187,176 @@ func (e *LSMEngine) Scan(start, end []byte, limit int) [][2]string {
 
 	version := e.manifest.Current()
 
-	type winEntry struct {
-		value   []byte
-		seqNo   uint64
-		deleted bool
-		fromMem bool // memtable entries always beat SSTable entries
-	}
-	winners := make(map[string]winEntry)
+	h := &scanHeap{}
+	heap.Init(h)
 
-	// addSST: first SSTable entry for a key wins (L0 processed newest-first,
-	// so the first entry is the most recent SSTable version).
-	addSST := func(userKey, value []byte, deleted bool) {
-		k := string(userKey)
-		if _, ok := winners[k]; ok {
-			return // already have a higher-priority entry
+	// addSource primes a source by fetching its first item and pushing it onto
+	// the heap. The item carries its own next() function so the heap loop can
+	// advance the source without needing external state.
+	addSource := func(next func() (*scanItem, error)) error {
+		item, err := next()
+		if err != nil {
+			return err
 		}
-		var v []byte
-		if !deleted && len(value) > 0 {
-			v = append([]byte{}, value...)
+		if item != nil {
+			item.next = next
+			heap.Push(h, item)
 		}
-		winners[k] = winEntry{value: v, seqNo: 0, deleted: deleted, fromMem: false}
+		return nil
 	}
 
-	// addMem: memtable entries always override SST entries; between
-	// memtable entries use SeqNo to keep the most recent one.
-	addMem := func(userKey, value []byte, seqNo uint64, deleted bool) {
-		k := string(userKey)
-		if ex, ok := winners[k]; ok && ex.fromMem && ex.seqNo >= seqNo {
-			return
+	// makeMemSource builds a cursor over a pre-sorted memtable snapshot.
+	makeMemSource := func(entries []memtable.Entry, priority int) func() (*scanItem, error) {
+		idx := 0
+		// Skip entries before start.
+		for idx < len(entries) && len(start) > 0 && bytes.Compare(entries[idx].Key.UserKey, start) < 0 {
+			idx++
 		}
-		var v []byte
-		if !deleted && len(value) > 0 {
-			v = append([]byte{}, value...)
+		return func() (*scanItem, error) {
+			if idx >= len(entries) {
+				return nil, nil
+			}
+			entry := entries[idx]
+			if len(end) > 0 && bytes.Compare(entry.Key.UserKey, end) >= 0 {
+				return nil, nil
+			}
+			idx++
+			return &scanItem{
+				userKey:  entry.Key.UserKey,
+				value:    entry.Value,
+				deleted:  entry.Key.Type == sstable.TypeDeletion,
+				priority: priority,
+				seqNo:    entry.Key.SeqNo,
+			}, nil
 		}
-		winners[k] = winEntry{value: v, seqNo: seqNo, deleted: deleted, fromMem: true}
 	}
 
-	// Hold readersMu for the entire SSTable scan.
-	e.readersMu.RLock()
-	defer e.readersMu.RUnlock()
+	// Source 0: mutable memtable (highest priority).
+	if err := addSource(makeMemSource(memEntries, 0)); err != nil {
+		return nil, err
+	}
 
-	// 1. L0 SSTables newest-first (highest priority among SSTs).
-	// Processing L0 first ensures its entries claim the winners slot before L1+
-	// can overwrite them (addSST is first-wins). This fixes issue #101 where
-	// L1+ data was silently shadowing fresher L0 writes.
+	// Sources 1..numImm: immutables newest-first.
+	// immEntries[numImm-1] is the newest → priority 1 (just below mutable).
+	numImm := len(immEntries)
+	for i := numImm - 1; i >= 0; i-- {
+		priority := numImm - i // immEntries[numImm-1] → 1, ..., immEntries[0] → numImm
+		if err := addSource(makeMemSource(immEntries[i], priority)); err != nil {
+			return nil, err
+		}
+	}
+
+	// SSTable sources — pin readers via tc.get; release at function return.
+	var sstReleases []func()
+	defer func() {
+		for _, rel := range sstReleases {
+			rel()
+		}
+	}()
+
+	sstPriority := numImm + 1
+
+	makeSSTSource := func(it *sstable.SSTableIterator, priority int) func() (*scanItem, error) {
+		it.SeekToFirst()
+		// Advance past entries before start.
+		for it.Valid() && len(start) > 0 && bytes.Compare(it.Key().UserKey, start) < 0 {
+			it.Next()
+		}
+		return func() (*scanItem, error) {
+			if !it.Valid() {
+				return nil, nil
+			}
+			ik := it.Key()
+			if len(end) > 0 && bytes.Compare(ik.UserKey, end) >= 0 {
+				return nil, nil
+			}
+			item := &scanItem{
+				userKey:  append([]byte(nil), ik.UserKey...),
+				value:    append([]byte(nil), it.Value()...),
+				deleted:  ik.Type == sstable.TypeDeletion,
+				priority: priority,
+				seqNo:    ik.SeqNo,
+			}
+			it.Next()
+			return item, nil
+		}
+	}
+
+	// L0 SSTables: newest fileID first so that newer L0 files get lower
+	// priority numbers (higher importance).
 	l0 := make([]*sstable.SSTableMeta, len(version.Levels[0]))
 	copy(l0, version.Levels[0])
 	sort.Slice(l0, func(i, j int) bool { return l0[i].FileID > l0[j].FileID })
 	for _, meta := range l0 {
 		if !tableOverlapsRange(meta.FirstKey, meta.LastKey, start, end) {
+			sstPriority++
 			continue
 		}
-		reader, ok := e.readers[meta.FileID]
+		reader, release, ok := e.tc.get(meta.FileID)
 		if !ok {
+			sstPriority++
 			continue
 		}
-		it := reader.NewIterator()
-		for it.Valid() {
-			ik := it.Key()
-			if len(start) > 0 && bytes.Compare(ik.UserKey, start) < 0 {
-				it.Next()
-				continue
-			}
-			if len(end) > 0 && bytes.Compare(ik.UserKey, end) >= 0 {
-				break
-			}
-			addSST(ik.UserKey, it.Value(), ik.Type == sstable.TypeDeletion)
-			it.Next()
+		sstReleases = append(sstReleases, release)
+		if err := addSource(makeSSTSource(reader.NewIterator(), sstPriority)); err != nil {
+			return nil, err
 		}
+		sstPriority++
 	}
 
-	// 2. L1+ SSTables (lower priority; L0 entries above already claimed their keys).
+	// L1+ SSTables.
 	for lvl := 1; lvl < manifest.MaxLevels; lvl++ {
 		for _, meta := range version.Levels[lvl] {
 			if !tableOverlapsRange(meta.FirstKey, meta.LastKey, start, end) {
+				sstPriority++
 				continue
 			}
-			reader, ok := e.readers[meta.FileID]
+			reader, release, ok := e.tc.get(meta.FileID)
 			if !ok {
+				sstPriority++
 				continue
 			}
-			it := reader.NewIterator()
-			for it.Valid() {
-				ik := it.Key()
-				if len(start) > 0 && bytes.Compare(ik.UserKey, start) < 0 {
-					it.Next()
-					continue
-				}
-				if len(end) > 0 && bytes.Compare(ik.UserKey, end) >= 0 {
-					break
-				}
-				addSST(ik.UserKey, it.Value(), ik.Type == sstable.TypeDeletion)
-				it.Next()
+			sstReleases = append(sstReleases, release)
+			if err := addSource(makeSSTSource(reader.NewIterator(), sstPriority)); err != nil {
+				return nil, err
+			}
+			sstPriority++
+		}
+	}
+
+	// Merge heap loop: pop keys in sorted order, deduplicate across sources,
+	// honour tombstones, and stop once limit is reached.
+	results := make([][2]string, 0)
+	var lastUserKey []byte
+
+	for h.Len() > 0 && (limit <= 0 || len(results) < limit) {
+		top := heap.Pop(h).(*scanItem)
+
+		// Duplicate detection: the heap pops all versions of the same key in
+		// priority order; only the first (highest-priority) version is kept.
+		isDuplicate := lastUserKey != nil && bytes.Equal(top.userKey, lastUserKey)
+		if !isDuplicate {
+			lastUserKey = append(lastUserKey[:0], top.userKey...)
+			if !top.deleted {
+				results = append(results, [2]string{
+					string(top.userKey),
+					string(top.value),
+				})
 			}
 		}
-	}
 
-	// 3. Immutable MemTables oldest-first (higher priority than SSTs)
-	for i := 0; i < len(immEntries); i++ {
-		for _, entry := range immEntries[i] {
-			if len(start) > 0 && bytes.Compare(entry.Key.UserKey, start) < 0 {
-				continue
-			}
-			if len(end) > 0 && bytes.Compare(entry.Key.UserKey, end) >= 0 {
-				break
-			}
-			addMem(entry.Key.UserKey, entry.Value, entry.Key.SeqNo, entry.Key.Type == sstable.TypeDeletion)
+		// Advance this source regardless of whether the item was a duplicate.
+		nextItem, err := top.next()
+		if err != nil {
+			return results, err // return partial results on error
+		}
+		if nextItem != nil {
+			nextItem.next = top.next
+			heap.Push(h, nextItem)
 		}
 	}
 
-	// 4. Mutable MemTable (highest priority)
-	for _, entry := range memEntries {
-		if len(start) > 0 && bytes.Compare(entry.Key.UserKey, start) < 0 {
-			continue
-		}
-		if len(end) > 0 && bytes.Compare(entry.Key.UserKey, end) >= 0 {
-			break
-		}
-		addMem(entry.Key.UserKey, entry.Value, entry.Key.SeqNo, entry.Key.Type == sstable.TypeDeletion)
-	}
-
-	// Collect live keys in range, sort, and limit
-	keys := make([]string, 0, len(winners))
-	for k, w := range winners {
-		if w.deleted {
-			continue
-		}
-		if len(start) > 0 && bytes.Compare([]byte(k), start) < 0 {
-			continue
-		}
-		if len(end) > 0 && bytes.Compare([]byte(k), end) >= 0 {
-			continue
-		}
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	if limit > 0 && len(keys) > limit {
-		keys = keys[:limit]
-	}
-
-	results := make([][2]string, len(keys))
-	for i, k := range keys {
-		results[i] = [2]string{k, string(winners[k].value)}
-	}
-	return results
+	return results, nil
 }
 
 func findLevelCandidate(level []*sstable.SSTableMeta, key []byte) *sstable.SSTableMeta {

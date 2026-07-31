@@ -41,6 +41,13 @@ func main() {
 		fatal(logger, "remote_bind_rejected", nil, slog.String("addr", addr))
 	}
 
+	shutdownTracing := observability.InitTracer("lsm-storage", "1.0.0")
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = shutdownTracing(ctx)
+	}()
+
 	clusterCfg, err := loadClusterConfig(cfg.DataDir, addr)
 	if err != nil {
 		fatal(logger, "load_cluster_config_failed", err)
@@ -61,8 +68,10 @@ func main() {
 		APIToken:       apiToken,
 	})
 	handler := gateway.NewHandler(node, hub, gateway.HandlerOptions{
-		AllowedOrigins: allowedOrigins,
-		APIToken:       apiToken,
+		AllowedOrigins:    allowedOrigins,
+		APIToken:          apiToken,                                    // admin (existing)
+		APITokenReadWrite: os.Getenv("API_TOKEN_READWRITE"),           // optional new
+		APITokenReadOnly:  os.Getenv("API_TOKEN_READONLY"),            // optional new
 	})
 	metrics := observability.NewMetrics(node, hub.ClientCount)
 
@@ -72,7 +81,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           observability.Middleware(logger, metrics, handler.RateLimitMiddleware(mux)),
+		Handler:           gateway.TracingMiddleware(observability.Middleware(logger, metrics, handler.RateLimitMiddleware(mux))),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      30 * time.Second,

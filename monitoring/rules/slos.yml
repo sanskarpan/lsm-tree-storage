@@ -1,0 +1,319 @@
+---
+# SLO recording rules and multi-window burn-rate alerts for the LSM-Tree storage engine.
+#
+# SLO Definitions
+# ───────────────
+#   Write Availability:  99.9%  — < 0.1% of write requests return 5xx
+#   Read  Availability:  99.9%  — < 0.1% of read  requests return 5xx
+#   Write Latency P99:   99%    — 99% of writes complete in < 100 ms
+#   Read  Latency P99:   99%    — 99% of reads  complete in <  50 ms
+#
+# Multi-Window Burn-Rate Thresholds (Google SRE / Alerting on SLOs pattern)
+# ──────────────────────────────────────────────────────────────────────────
+#   For a 99.9% SLO (error_budget_ratio = 0.001):
+#     Fast  burn (page now):   14.4× for 1 h  AND 5 m  windows  → ~5 min to fire
+#     Slow  burn (ticket):      6.0× for 6 h  AND 30 m windows  → ~30 min to fire
+#
+#   For a 99% latency SLO (error_budget_ratio = 0.01):
+#     Fast  burn (page now):   14.4× for 1 h  AND 5 m  windows
+#     Slow  burn (ticket):      6.0× for 6 h  AND 30 m windows
+#
+# Routes tracked as "write":  /db/put, /db/batch
+# Routes tracked as "read":   /db/get, /db/scan
+
+groups:
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Recording rules — pre-computed error ratios for multiple burn windows
+  # ─────────────────────────────────────────────────────────────────────────────
+  - name: lsm.slo.recording
+    interval: 30s
+    rules:
+
+      # ── Write Availability error ratios ──────────────────────────────────────
+      - record: lsm:write_request_errors:ratio_rate5m
+        expr: |
+          sum(rate(lsm_http_requests_total{route=~"/db/put|/db/batch",status=~"5.."}[5m]))
+          /
+          sum(rate(lsm_http_requests_total{route=~"/db/put|/db/batch"}[5m]))
+
+      - record: lsm:write_request_errors:ratio_rate30m
+        expr: |
+          sum(rate(lsm_http_requests_total{route=~"/db/put|/db/batch",status=~"5.."}[30m]))
+          /
+          sum(rate(lsm_http_requests_total{route=~"/db/put|/db/batch"}[30m]))
+
+      - record: lsm:write_request_errors:ratio_rate1h
+        expr: |
+          sum(rate(lsm_http_requests_total{route=~"/db/put|/db/batch",status=~"5.."}[1h]))
+          /
+          sum(rate(lsm_http_requests_total{route=~"/db/put|/db/batch"}[1h]))
+
+      - record: lsm:write_request_errors:ratio_rate6h
+        expr: |
+          sum(rate(lsm_http_requests_total{route=~"/db/put|/db/batch",status=~"5.."}[6h]))
+          /
+          sum(rate(lsm_http_requests_total{route=~"/db/put|/db/batch"}[6h]))
+
+      # ── Read Availability error ratios ───────────────────────────────────────
+      - record: lsm:read_request_errors:ratio_rate5m
+        expr: |
+          sum(rate(lsm_http_requests_total{route=~"/db/get|/db/scan",status=~"5.."}[5m]))
+          /
+          sum(rate(lsm_http_requests_total{route=~"/db/get|/db/scan"}[5m]))
+
+      - record: lsm:read_request_errors:ratio_rate30m
+        expr: |
+          sum(rate(lsm_http_requests_total{route=~"/db/get|/db/scan",status=~"5.."}[30m]))
+          /
+          sum(rate(lsm_http_requests_total{route=~"/db/get|/db/scan"}[30m]))
+
+      - record: lsm:read_request_errors:ratio_rate1h
+        expr: |
+          sum(rate(lsm_http_requests_total{route=~"/db/get|/db/scan",status=~"5.."}[1h]))
+          /
+          sum(rate(lsm_http_requests_total{route=~"/db/get|/db/scan"}[1h]))
+
+      - record: lsm:read_request_errors:ratio_rate6h
+        expr: |
+          sum(rate(lsm_http_requests_total{route=~"/db/get|/db/scan",status=~"5.."}[6h]))
+          /
+          sum(rate(lsm_http_requests_total{route=~"/db/get|/db/scan"}[6h]))
+
+      # ── Write latency SLO violation ratios (fraction of requests > 100 ms) ──
+      # Violation ratio = 1 − (requests completing ≤ 100 ms / total requests)
+      - record: lsm:write_latency_violation:ratio_rate5m
+        expr: |
+          1 - (
+            sum(rate(lsm_http_request_duration_seconds_bucket{route=~"/db/put|/db/batch",le="0.1"}[5m]))
+            /
+            sum(rate(lsm_http_request_duration_seconds_bucket{route=~"/db/put|/db/batch",le="+Inf"}[5m]))
+          )
+
+      - record: lsm:write_latency_violation:ratio_rate30m
+        expr: |
+          1 - (
+            sum(rate(lsm_http_request_duration_seconds_bucket{route=~"/db/put|/db/batch",le="0.1"}[30m]))
+            /
+            sum(rate(lsm_http_request_duration_seconds_bucket{route=~"/db/put|/db/batch",le="+Inf"}[30m]))
+          )
+
+      - record: lsm:write_latency_violation:ratio_rate1h
+        expr: |
+          1 - (
+            sum(rate(lsm_http_request_duration_seconds_bucket{route=~"/db/put|/db/batch",le="0.1"}[1h]))
+            /
+            sum(rate(lsm_http_request_duration_seconds_bucket{route=~"/db/put|/db/batch",le="+Inf"}[1h]))
+          )
+
+      - record: lsm:write_latency_violation:ratio_rate6h
+        expr: |
+          1 - (
+            sum(rate(lsm_http_request_duration_seconds_bucket{route=~"/db/put|/db/batch",le="0.1"}[6h]))
+            /
+            sum(rate(lsm_http_request_duration_seconds_bucket{route=~"/db/put|/db/batch",le="+Inf"}[6h]))
+          )
+
+      # ── Read latency SLO violation ratios (fraction of requests > 50 ms) ────
+      - record: lsm:read_latency_violation:ratio_rate5m
+        expr: |
+          1 - (
+            sum(rate(lsm_http_request_duration_seconds_bucket{route=~"/db/get|/db/scan",le="0.05"}[5m]))
+            /
+            sum(rate(lsm_http_request_duration_seconds_bucket{route=~"/db/get|/db/scan",le="+Inf"}[5m]))
+          )
+
+      - record: lsm:read_latency_violation:ratio_rate30m
+        expr: |
+          1 - (
+            sum(rate(lsm_http_request_duration_seconds_bucket{route=~"/db/get|/db/scan",le="0.05"}[30m]))
+            /
+            sum(rate(lsm_http_request_duration_seconds_bucket{route=~"/db/get|/db/scan",le="+Inf"}[30m]))
+          )
+
+      - record: lsm:read_latency_violation:ratio_rate1h
+        expr: |
+          1 - (
+            sum(rate(lsm_http_request_duration_seconds_bucket{route=~"/db/get|/db/scan",le="0.05"}[1h]))
+            /
+            sum(rate(lsm_http_request_duration_seconds_bucket{route=~"/db/get|/db/scan",le="+Inf"}[1h]))
+          )
+
+      - record: lsm:read_latency_violation:ratio_rate6h
+        expr: |
+          1 - (
+            sum(rate(lsm_http_request_duration_seconds_bucket{route=~"/db/get|/db/scan",le="0.05"}[6h]))
+            /
+            sum(rate(lsm_http_request_duration_seconds_bucket{route=~"/db/get|/db/scan",le="+Inf"}[6h]))
+          )
+
+      # ── Convenience: current error-budget remaining (write availability) ─────
+      - record: lsm:write_availability_slo:error_budget_remaining
+        expr: |
+          1 - (
+            sum(increase(lsm_http_requests_total{route=~"/db/put|/db/batch",status=~"5.."}[30d]))
+            /
+            (sum(increase(lsm_http_requests_total{route=~"/db/put|/db/batch"}[30d])) * 0.001)
+          )
+
+      - record: lsm:read_availability_slo:error_budget_remaining
+        expr: |
+          1 - (
+            sum(increase(lsm_http_requests_total{route=~"/db/get|/db/scan",status=~"5.."}[30d]))
+            /
+            (sum(increase(lsm_http_requests_total{route=~"/db/get|/db/scan"}[30d])) * 0.001)
+          )
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Burn-rate alert rules
+  # ─────────────────────────────────────────────────────────────────────────────
+  - name: lsm.slo.alerts
+    rules:
+
+      # ── Write Availability SLO (99.9%) — Fast Burn ───────────────────────────
+      - alert: LSMWriteAvailabilitySLOFastBurn
+        expr: |
+          (lsm:write_request_errors:ratio_rate1h > (14.4 * 0.001))
+          and
+          (lsm:write_request_errors:ratio_rate5m > (14.4 * 0.001))
+        for: 0m
+        labels:
+          severity: critical
+          slo: write_availability
+          burn_rate: fast
+        annotations:
+          summary: "Write availability SLO fast burn — error budget will be exhausted in ~2 hours"
+          description: >
+            1h error ratio: {{ with query "lsm:write_request_errors:ratio_rate1h" }}{{ . | first | value | humanizePercentage }}{{ end }},
+            5m error ratio: {{ with query "lsm:write_request_errors:ratio_rate5m" }}{{ . | first | value | humanizePercentage }}{{ end }}.
+            Both exceed the 14.4× burn rate threshold (1.44% error rate) for the 99.9% write-availability SLO.
+            At this rate the entire 30-day error budget will be exhausted in approximately 2 hours.
+          runbook_url: "https://runbooks.example.com/lsm/LSMWriteAvailabilitySLOFastBurn"
+
+      # ── Write Availability SLO (99.9%) — Slow Burn ───────────────────────────
+      - alert: LSMWriteAvailabilitySLOSlowBurn
+        expr: |
+          (lsm:write_request_errors:ratio_rate6h > (6 * 0.001))
+          and
+          (lsm:write_request_errors:ratio_rate30m > (6 * 0.001))
+        for: 0m
+        labels:
+          severity: warning
+          slo: write_availability
+          burn_rate: slow
+        annotations:
+          summary: "Write availability SLO slow burn — error budget will be exhausted in ~5 days"
+          description: >
+            6h error ratio exceeds the 6× burn rate threshold (0.6% error rate) for the
+            99.9% write-availability SLO. At this rate the 30-day error budget will be
+            exhausted in approximately 5 days.
+          runbook_url: "https://runbooks.example.com/lsm/LSMWriteAvailabilitySLOSlowBurn"
+
+      # ── Read Availability SLO (99.9%) — Fast Burn ────────────────────────────
+      - alert: LSMReadAvailabilitySLOFastBurn
+        expr: |
+          (lsm:read_request_errors:ratio_rate1h > (14.4 * 0.001))
+          and
+          (lsm:read_request_errors:ratio_rate5m > (14.4 * 0.001))
+        for: 0m
+        labels:
+          severity: critical
+          slo: read_availability
+          burn_rate: fast
+        annotations:
+          summary: "Read availability SLO fast burn — error budget will be exhausted in ~2 hours"
+          description: >
+            Both the 1h and 5m read error ratios exceed the 14.4× burn rate threshold
+            (1.44%) for the 99.9% read-availability SLO.
+          runbook_url: "https://runbooks.example.com/lsm/LSMReadAvailabilitySLOFastBurn"
+
+      # ── Read Availability SLO (99.9%) — Slow Burn ────────────────────────────
+      - alert: LSMReadAvailabilitySLOSlowBurn
+        expr: |
+          (lsm:read_request_errors:ratio_rate6h > (6 * 0.001))
+          and
+          (lsm:read_request_errors:ratio_rate30m > (6 * 0.001))
+        for: 0m
+        labels:
+          severity: warning
+          slo: read_availability
+          burn_rate: slow
+        annotations:
+          summary: "Read availability SLO slow burn — error budget will be exhausted in ~5 days"
+          description: >
+            6h and 30m read error ratios exceed the 6× burn rate threshold (0.6%) for
+            the 99.9% read-availability SLO.
+          runbook_url: "https://runbooks.example.com/lsm/LSMReadAvailabilitySLOSlowBurn"
+
+      # ── Write Latency SLO (99% of writes < 100 ms) — Fast Burn ──────────────
+      - alert: LSMWriteLatencySLOFastBurn
+        expr: |
+          (lsm:write_latency_violation:ratio_rate1h > (14.4 * 0.01))
+          and
+          (lsm:write_latency_violation:ratio_rate5m > (14.4 * 0.01))
+        for: 0m
+        labels:
+          severity: critical
+          slo: write_latency
+          burn_rate: fast
+        annotations:
+          summary: "Write latency SLO fast burn — P99 > 100 ms budget exhausting in ~2 hours"
+          description: >
+            More than 14.4% of write requests are violating the 100 ms latency SLO
+            over both the 1h and 5m windows. The 30-day latency error budget will be
+            exhausted in approximately 2 hours.
+          runbook_url: "https://runbooks.example.com/lsm/LSMWriteLatencySLOFastBurn"
+
+      # ── Write Latency SLO (99% of writes < 100 ms) — Slow Burn ──────────────
+      - alert: LSMWriteLatencySLOSlowBurn
+        expr: |
+          (lsm:write_latency_violation:ratio_rate6h > (6 * 0.01))
+          and
+          (lsm:write_latency_violation:ratio_rate30m > (6 * 0.01))
+        for: 0m
+        labels:
+          severity: warning
+          slo: write_latency
+          burn_rate: slow
+        annotations:
+          summary: "Write latency SLO slow burn — sustained P99 > 100 ms budget burn"
+          description: >
+            6h and 30m write violation ratios exceed the 6× burn rate threshold (6%)
+            for the 99% write-latency SLO (< 100 ms). Budget will be exhausted in ~5 days.
+          runbook_url: "https://runbooks.example.com/lsm/LSMWriteLatencySLOSlowBurn"
+
+      # ── Read Latency SLO (99% of reads < 50 ms) — Fast Burn ─────────────────
+      - alert: LSMReadLatencySLOFastBurn
+        expr: |
+          (lsm:read_latency_violation:ratio_rate1h > (14.4 * 0.01))
+          and
+          (lsm:read_latency_violation:ratio_rate5m > (14.4 * 0.01))
+        for: 0m
+        labels:
+          severity: critical
+          slo: read_latency
+          burn_rate: fast
+        annotations:
+          summary: "Read latency SLO fast burn — P99 > 50 ms budget exhausting in ~2 hours"
+          description: >
+            More than 14.4% of read requests are violating the 50 ms latency SLO over
+            both the 1h and 5m windows.
+          runbook_url: "https://runbooks.example.com/lsm/LSMReadLatencySLOFastBurn"
+
+      # ── Read Latency SLO (99% of reads < 50 ms) — Slow Burn ─────────────────
+      - alert: LSMReadLatencySLOSlowBurn
+        expr: |
+          (lsm:read_latency_violation:ratio_rate6h > (6 * 0.01))
+          and
+          (lsm:read_latency_violation:ratio_rate30m > (6 * 0.01))
+        for: 0m
+        labels:
+          severity: warning
+          slo: read_latency
+          burn_rate: slow
+        annotations:
+          summary: "Read latency SLO slow burn — sustained P99 > 50 ms budget burn"
+          description: >
+            6h and 30m read violation ratios exceed the 6× burn rate threshold (6%)
+            for the 99% read-latency SLO (< 50 ms). Budget will be exhausted in ~5 days.
+          runbook_url: "https://runbooks.example.com/lsm/LSMReadLatencySLOSlowBurn"

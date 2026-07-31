@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "lsm-storage.configMapName" . }}
+  labels:
+    {{- include "lsm-storage.labels" . | nindent 4 }}
+data:
+  SYNC_WAL: {{ .Values.config.syncWAL | quote }}
+  MAX_OPEN_FILES: {{ .Values.config.maxOpenFiles | quote }}
+  BLOCK_CACHE_SIZE: {{ printf "%d" (int64 .Values.config.blockCacheSize) | quote }}
+  COMPACTION_STYLE: {{ .Values.config.compactionStyle | quote }}
+  DATA_DIR: "/data"
+  ADDR: "0.0.0.0:{{ .Values.service.backend.port }}"
+  LOG_FORMAT: {{ .Values.config.logFormat | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  {{- if .Values.config.allowedOrigins }}
+  ALLOWED_ORIGINS: {{ .Values.config.allowedOrigins | quote }}
+  {{- else }}
+  ALLOWED_ORIGINS: {{ printf "http://%s:%d" (include "lsm-storage.frontendServiceName" .) (int .Values.service.frontend.port) | quote }}
+  {{- end }}
+  {{- if .Values.tls.enabled }}
+  TLS_CERT_FILE: {{ .Values.tls.certFile | default "/tls/tls.crt" | quote }}
+  TLS_KEY_FILE: {{ .Values.tls.keyFile | default "/tls/tls.key" | quote }}
+  {{- end }}

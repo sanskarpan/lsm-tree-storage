@@ -33,23 +33,37 @@ const (
 	maxKeySizeBytes      = 8 << 10
 )
 
+// apiRole represents the minimum access tier required for a route.
+type apiRole int
+
+const (
+	roleReadOnly  apiRole = 1
+	roleReadWrite apiRole = 2
+	roleAdmin     apiRole = 3
+)
+
 // HandlerOptions configures request policy for the REST gateway.
 type HandlerOptions struct {
-	AllowedOrigins []string
-	APIToken       string
+	AllowedOrigins    []string
+	APIToken          string // admin token (backward compat)
+	APITokenReadWrite string // optional: read-write token
+	APITokenReadOnly  string // optional: read-only token
 }
 
 // Handler wires REST routes to the LSM engine.
 type Handler struct {
-	node            cluster.Node
-	hub             *WSHub
-	httpClient      *http.Client
-	lastBenchResult interface{}
-	allowedOrigins  []string
-	apiToken        string
-	walMu           sync.Mutex
-	recentWAL       []walEventSnapshot
-	rateLimiter     *ipRateLimiter
+	node              cluster.Node
+	hub               *WSHub
+	httpClient        *http.Client
+	lastBenchResult   interface{}
+	allowedOrigins    []string
+	apiToken          string // kept for CORS auth check (admin token)
+	apiTokenAdmin     string // full access
+	apiTokenReadWrite string // write + read, no admin ops
+	apiTokenReadOnly  string // read-only (Get, Scan, Stats, Health)
+	walMu             sync.Mutex
+	recentWAL         []walEventSnapshot
+	rateLimiter       *ipRateLimiter
 }
 
 // ipRateLimiter is a simple per-IP token bucket rate limiter that requires no
@@ -115,13 +129,17 @@ type walEventSnapshot struct {
 
 // NewHandler creates a Handler backed by eng and hub.
 func NewHandler(node cluster.Node, hub *WSHub, opts HandlerOptions) *Handler {
+	adminTok := strings.TrimSpace(opts.APIToken)
 	h := &Handler{
-		node:           node,
-		hub:            hub,
-		httpClient:     &http.Client{Timeout: 10 * time.Second},
-		allowedOrigins: append([]string(nil), opts.AllowedOrigins...),
-		apiToken:       strings.TrimSpace(opts.APIToken),
-		rateLimiter:    newIPRateLimiter(),
+		node:              node,
+		hub:               hub,
+		httpClient:        &http.Client{Timeout: 10 * time.Second},
+		allowedOrigins:    append([]string(nil), opts.AllowedOrigins...),
+		apiToken:          adminTok, // used by CORS helper (any token present = auth required)
+		apiTokenAdmin:     adminTok,
+		apiTokenReadWrite: strings.TrimSpace(opts.APITokenReadWrite),
+		apiTokenReadOnly:  strings.TrimSpace(opts.APITokenReadOnly),
+		rateLimiter:       newIPRateLimiter(),
 	}
 	if bus := node.EventBus(); bus != nil {
 		bus.Subscribe(events.EvtWALAppend, h.recordWALEvent)
@@ -168,6 +186,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 		"/cluster/membership/remove": h.handleClusterRemovePeer,
 		"/cluster/readiness":         h.handleClusterReadiness,
 		"/ws":                        h.hub.ServeWS,
+		"/admin/snapshot":            h.handleSnapshot,
 	}
 	for path, fn := range routes {
 		mux.HandleFunc(path, fn)
@@ -326,16 +345,45 @@ func tokenAuthorized(expected, actual string) bool {
 }
 
 func (h *Handler) requireAuth(w http.ResponseWriter, r *http.Request) bool {
-	if h.apiToken == "" {
+	return h.requireRole(w, r, roleAdmin)
+}
+
+// checkRole returns true if the request bearer token satisfies the required role tier.
+// When no tokens are configured at all, access is open (no auth required).
+func (h *Handler) checkRole(r *http.Request, required apiRole) bool {
+	// If no tokens are configured, allow all requests (unauthenticated mode).
+	if h.apiTokenAdmin == "" && h.apiTokenReadWrite == "" && h.apiTokenReadOnly == "" {
 		return true
 	}
-	token := parseBearerToken(r.Header.Get("Authorization"))
-	if tokenAuthorized(h.apiToken, token) {
+	tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	tok = strings.TrimSpace(tok)
+	if tok == "" {
+		return false
+	}
+	// Constant-time check each tier from highest to lowest.
+	if h.apiTokenAdmin != "" && subtle.ConstantTimeCompare([]byte(tok), []byte(h.apiTokenAdmin)) == 1 {
+		return true // admin can do anything
+	}
+	if required <= roleReadWrite && h.apiTokenReadWrite != "" &&
+		subtle.ConstantTimeCompare([]byte(tok), []byte(h.apiTokenReadWrite)) == 1 {
 		return true
 	}
-	w.Header().Set("WWW-Authenticate", `Bearer realm="lsm-engine"`)
-	writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+	if required <= roleReadOnly && h.apiTokenReadOnly != "" &&
+		subtle.ConstantTimeCompare([]byte(tok), []byte(h.apiTokenReadOnly)) == 1 {
+		return true
+	}
 	return false
+}
+
+// requireRole checks that the request satisfies the minimum role tier and
+// writes a 401 response if not. Returns false when the caller should abort.
+func (h *Handler) requireRole(w http.ResponseWriter, r *http.Request, role apiRole) bool {
+	if !h.checkRole(r, role) {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="lsm-engine"`)
+		writeJSONError(w, http.StatusUnauthorized, "insufficient permissions")
+		return false
+	}
+	return true
 }
 
 func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst interface{}, limit int64) bool {
@@ -467,7 +515,7 @@ func (h *Handler) handlePut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req putRequest
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadWrite) {
 		return
 	}
 	if !decodeJSONBody(w, r, &req, maxWriteRequestBytes) {
@@ -509,7 +557,7 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadOnly) {
 		return
 	}
 	key := r.URL.Query().Get("key")
@@ -552,7 +600,7 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadWrite) {
 		return
 	}
 	key := r.URL.Query().Get("key")
@@ -589,7 +637,7 @@ func (h *Handler) handleScan(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadOnly) {
 		return
 	}
 	start := r.URL.Query().Get("start")
@@ -653,7 +701,7 @@ func (h *Handler) handleLevels(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadOnly) {
 		return
 	}
 	version := h.node.Version(h.requestContext(r))
@@ -692,7 +740,7 @@ func (h *Handler) handleBloom(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadOnly) {
 		return
 	}
 	// Extract fileID from /bloom/{fileID} or /api/v1/bloom/{fileID}
@@ -755,7 +803,7 @@ func (h *Handler) handleStats(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadOnly) {
 		return
 	}
 	writeJSON(w, http.StatusOK, h.node.Stats(h.requestContext(r)))
@@ -815,7 +863,7 @@ func (h *Handler) handleBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req batchRequest
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadWrite) {
 		return
 	}
 	if !decodeJSONBody(w, r, &req, maxWriteRequestBytes) {
@@ -861,7 +909,7 @@ func (h *Handler) handleAmplification(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadOnly) {
 		return
 	}
 	stats := h.node.Stats(h.requestContext(r))
@@ -959,7 +1007,7 @@ func (h *Handler) handleBenchRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req benchRequest
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadWrite) {
 		return
 	}
 	if !decodeJSONBody(w, r, &req, maxAdminRequestBytes) {
@@ -1031,7 +1079,7 @@ func (h *Handler) handleScenariosList(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadOnly) {
 		return
 	}
 	type scenarioInfo struct {
@@ -1060,7 +1108,7 @@ func (h *Handler) handleScenarioRun(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadWrite) {
 		return
 	}
 	// Path: /scenarios/{name}/run or /api/v1/scenarios/{name}/run
@@ -1107,7 +1155,7 @@ func (h *Handler) handleOpen(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadOnly) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -1158,7 +1206,7 @@ func (h *Handler) handleCompactionStats(w http.ResponseWriter, r *http.Request) 
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadOnly) {
 		return
 	}
 	version := h.node.Version(h.requestContext(r))
@@ -1188,7 +1236,7 @@ func (h *Handler) handleBenchResult(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadOnly) {
 		return
 	}
 	if h.lastBenchResult == nil {
@@ -1206,7 +1254,7 @@ func (h *Handler) handleWALEntries(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadOnly) {
 		return
 	}
 	limit := 50
@@ -1240,7 +1288,7 @@ func (h *Handler) handleMemTableSnapshot(w http.ResponseWriter, r *http.Request)
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadOnly) {
 		return
 	}
 	limit := 100
@@ -1324,7 +1372,7 @@ func (h *Handler) handleCacheStats(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadOnly) {
 		return
 	}
 	stats := h.node.Stats(h.requestContext(r))
@@ -1344,7 +1392,7 @@ func (h *Handler) handleClusterStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadOnly) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -1361,7 +1409,7 @@ func (h *Handler) handleClusterLeader(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadOnly) {
 		return
 	}
 	status := h.node.Status(h.requestContext(r))
@@ -1380,7 +1428,7 @@ func (h *Handler) handleClusterPeers(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadOnly) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -1396,7 +1444,7 @@ func (h *Handler) handleClusterShards(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadOnly) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -1491,7 +1539,7 @@ func (h *Handler) handleClusterReadiness(w http.ResponseWriter, r *http.Request)
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !h.requireAuth(w, r) {
+	if !h.requireRole(w, r, roleReadOnly) {
 		return
 	}
 	health := h.node.HealthStatus(h.requestContext(r))
@@ -1506,6 +1554,68 @@ func (h *Handler) handleClusterReadiness(w http.ResponseWriter, r *http.Request)
 		"engine":  health,
 		"cluster": clusterStatus,
 		"leader":  h.node.LeaderAddress(h.requestContext(r)),
+	})
+}
+
+// ── Snapshot (backup quiescing) ───────────────────────────────────────────────
+
+// handleSnapshot quiesces writes by flushing the memtable to SSTables, then
+// returns the current manifest version so backup tooling can copy SSTable files
+// consistently. Requires the admin role.
+func (h *Handler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
+	if !h.applyCORS(w, r) {
+		return
+	}
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "POST required")
+		return
+	}
+	if !h.requireRole(w, r, roleAdmin) {
+		return
+	}
+
+	// Quiesce: flush all in-memory data to SSTables before snapshotting.
+	h.node.ForceFlush(h.requestContext(r))
+
+	// Return the current manifest version so backup tooling knows which
+	// SSTable files are live and can be copied consistently.
+	version := h.node.Version(h.requestContext(r))
+	engCfg := h.node.EngineConfig(h.requestContext(r))
+
+	type fileInfo struct {
+		FileID   uint64 `json:"file_id"`
+		Level    int    `json:"level"`
+		FileSize uint64 `json:"file_size"`
+		FilePath string `json:"file_path"`
+		FirstKey string `json:"first_key"`
+		LastKey  string `json:"last_key"`
+	}
+	var files []fileInfo
+	for level, ssts := range version.Levels {
+		for _, meta := range ssts {
+			files = append(files, fileInfo{
+				FileID:   meta.FileID,
+				Level:    level,
+				FileSize: meta.FileSize,
+				FilePath: meta.FilePath,
+				FirstKey: string(meta.FirstKey),
+				LastKey:  string(meta.LastKey),
+			})
+		}
+	}
+	if files == nil {
+		files = []fileInfo{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"snapshot_files": files,
+		"file_count":     len(files),
+		"data_dir":       engCfg.DataDir,
+		"message":        "engine flushed; copy all snapshot_files to take a consistent backup",
 	})
 }
 

@@ -1,0 +1,147 @@
+replicaCount: 1
+
+image:
+  backend:
+    repository: lsm-storage-backend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  frontend:
+    repository: lsm-storage-frontend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: false
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+service:
+  backend:
+    type: ClusterIP
+    port: 8080
+  frontend:
+    type: ClusterIP
+    port: 3001
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # nginx.ingress.kubernetes.io/rewrite-target: /$2
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: lsm-storage.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend
+        - path: /api/
+          pathType: Prefix
+          service: backend
+  tls: []
+  #  - secretName: lsm-storage-tls
+  #    hosts:
+  #      - lsm-storage.example.com
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce
+
+resources:
+  backend:
+    requests:
+      memory: 512Mi
+      cpu: 250m
+    limits:
+      memory: 2Gi
+      cpu: "1"
+  frontend:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 256Mi
+      cpu: 200m
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70
+  # targetMemoryUtilizationPercentage: 80
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Engine configuration (non-secret values)
+config:
+  syncWAL: true
+  maxOpenFiles: 1000
+  # 128 MB
+  blockCacheSize: 134217728
+  compactionStyle: leveled
+  logFormat: json
+  logLevel: info
+  allowedOrigins: ""
+
+tls:
+  enabled: false
+  certSecretName: ""
+  certFile: ""
+  keyFile: ""
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: false
+    # interval: 15s
+    # namespace: monitoring
+    additionalLabels: {}
+
+# Name of an existing Kubernetes Secret containing:
+#   API_TOKEN        - token required for all API requests
+#   METRICS_TOKEN    - token for the /metrics endpoint (falls back to API_TOKEN)
+#   BFF_BASIC_AUTH   - basic-auth credentials for the frontend BFF (user:password)
+# Leave empty to create a placeholder Secret from this chart (YOU MUST update it before use).
+auth:
+  existingSecret: ""
+
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# Frontend runs as uid 1001 (appuser); override securityContext for the frontend container
+frontendSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  readOnlyRootFilesystem: false
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

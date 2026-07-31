@@ -1,0 +1,31 @@
+{{- if and .Values.metrics.enabled .Values.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "lsm-storage.fullname" . }}
+  labels:
+    {{- include "lsm-storage.labels" . | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- if .Values.metrics.serviceMonitor.namespace }}
+  namespace: {{ .Values.metrics.serviceMonitor.namespace }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "lsm-storage.backendSelectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval | default "15s" }}
+      {{- if .Values.auth.existingSecret }}
+      bearerTokenSecret:
+        name: {{ .Values.auth.existingSecret }}
+        key: METRICS_TOKEN
+      {{- else }}
+      bearerTokenSecret:
+        name: {{ include "lsm-storage.fullname" . }}-auth
+        key: METRICS_TOKEN
+      {{- end }}
+{{- end }}

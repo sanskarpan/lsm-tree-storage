@@ -1,0 +1,97 @@
+Thank you for installing {{ .Chart.Name }} (version {{ .Chart.Version }}).
+
+=============================================================================
+IMPORTANT: Authentication Setup
+=============================================================================
+
+{{- if not .Values.auth.existingSecret }}
+A Secret named {{ include "lsm-storage.fullname" . }}-auth was created with
+PLACEHOLDER credentials. You MUST replace them before using this deployment:
+
+  Option A — patch the existing Secret:
+    kubectl create secret generic {{ include "lsm-storage.fullname" . }}-auth \
+      --from-literal=API_TOKEN=<your-strong-token> \
+      --from-literal=METRICS_TOKEN=<your-metrics-token> \
+      --from-literal=BFF_BASIC_AUTH=user:password \
+      --save-config --dry-run=client -o yaml | kubectl apply -f -
+
+  Option B — use an externally managed Secret (recommended):
+    kubectl create secret generic my-lsm-secrets \
+      --from-literal=API_TOKEN=<your-strong-token> \
+      --from-literal=METRICS_TOKEN=<your-metrics-token> \
+      --from-literal=BFF_BASIC_AUTH=user:password
+
+    helm upgrade {{ .Release.Name }} ./helm/lsm-storage \
+      --set auth.existingSecret=my-lsm-secrets
+{{- else }}
+Using existing Secret: {{ .Values.auth.existingSecret }}
+Make sure it contains the keys: API_TOKEN, METRICS_TOKEN, BFF_BASIC_AUTH.
+{{- end }}
+
+=============================================================================
+Accessing the Application
+=============================================================================
+
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+  Frontend : http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}/
+  Backend  : http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}/api/
+{{- end }}
+{{- else }}
+The services are exposed as ClusterIP. To access them from outside the cluster,
+use kubectl port-forward:
+
+  # Frontend dashboard
+  kubectl port-forward svc/{{ include "lsm-storage.frontendServiceName" . }} 3001:{{ .Values.service.frontend.port }} &
+  open http://localhost:3001
+
+  # Backend API
+  kubectl port-forward svc/{{ include "lsm-storage.backendServiceName" . }} 8080:{{ .Values.service.backend.port }} &
+  curl http://localhost:8080/ready
+{{- end }}
+
+=============================================================================
+Enabling TLS (Backend)
+=============================================================================
+
+Create a TLS Secret (or use cert-manager) and then upgrade the release:
+
+  kubectl create secret tls lsm-tls \
+    --cert=path/to/tls.crt \
+    --key=path/to/tls.key
+
+  helm upgrade {{ .Release.Name }} ./helm/lsm-storage \
+    --set tls.enabled=true \
+    --set tls.certSecretName=lsm-tls
+
+=============================================================================
+Enabling Prometheus Monitoring
+=============================================================================
+
+If you have the Prometheus Operator installed:
+
+  helm upgrade {{ .Release.Name }} ./helm/lsm-storage \
+    --set metrics.serviceMonitor.enabled=true \
+    --set metrics.serviceMonitor.additionalLabels.release=prometheus
+
+The ServiceMonitor will use METRICS_TOKEN from the auth Secret as a bearer
+token for authenticated scraping.
+
+=============================================================================
+Production Checklist
+=============================================================================
+
+  [ ] Replace placeholder auth credentials (see above)
+  [ ] Set persistence.storageClass to a fast block-storage class
+  [ ] Configure resource limits appropriate for your workload
+  [ ] Enable TLS (tls.enabled=true) for the backend
+  [ ] Set up Ingress with TLS termination for external traffic
+  [ ] Enable PodDisruptionBudget (podDisruptionBudget.enabled=true)
+  [ ] Enable HPA if you expect variable load (autoscaling.enabled=true)
+  [ ] Enable ServiceMonitor for Prometheus scraping
+  [ ] Set nodeSelector / tolerations for dedicated storage nodes
+
+Release name : {{ .Release.Name }}
+Namespace    : {{ .Release.Namespace }}
+Chart version: {{ .Chart.Version }}
+App version  : {{ .Chart.AppVersion }}

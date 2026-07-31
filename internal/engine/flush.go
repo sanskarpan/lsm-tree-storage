@@ -104,11 +104,9 @@ func (e *LSMEngine) flush(imm *immutableMemtable) error {
 
 	// Open/register the reader before publishing the SSTable through the manifest.
 	meta.FilePath = path
-	reader, err := sstable.NewSSTableReader(path, meta, e.cache, e.bus)
-	if err != nil {
+	if err := e.tc.register(fileID, meta, path); err != nil {
 		return fmt.Errorf("open sstable reader: %w", err)
 	}
-	e.registerReader(fileID, reader)
 	edit := manifest.VersionEdit{
 		Type:     manifest.EditAddSSTable,
 		Level:    0,
@@ -118,7 +116,7 @@ func (e *LSMEngine) flush(imm *immutableMemtable) error {
 		LastKey:  meta.LastKey,
 	}
 	if err := e.manifest.Apply(edit); err != nil {
-		e.unregisterReader(fileID)
+		e.tc.unregister(fileID)
 		_ = os.Remove(path) // orphaned; will be cleaned on next recovery
 		return fmt.Errorf("manifest apply: %w", err)
 	}

@@ -173,6 +173,31 @@ func NewMetrics(node cluster.Node, clientCount func() int) *Metrics {
 			},
 			func() float64 { return float64(node.Status(nil).LastApplied) },
 		),
+		prometheus.NewGaugeFunc(
+			prometheus.GaugeOpts{
+				Name: "lsm_engine_l0_sst_files",
+				Help: "Current number of SSTable files in L0 (pre-compaction level).",
+			},
+			func() float64 {
+				v := node.Version(nil)
+				if v == nil {
+					return 0
+				}
+				return float64(len(v.Levels[0]))
+			},
+		),
+		prometheus.NewGaugeFunc(
+			prometheus.GaugeOpts{
+				Name: "lsm_bg_error",
+				Help: "1 when a background flush or compaction error has stalled the engine; 0 otherwise.",
+			},
+			func() float64 {
+				if node.HealthStatus(nil).BgError != "" {
+					return 1
+				}
+				return 0
+			},
+		),
 	)
 
 	if bus := node.EventBus(); bus != nil {

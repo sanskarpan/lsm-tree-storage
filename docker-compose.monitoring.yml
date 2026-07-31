@@ -1,0 +1,119 @@
+# docker-compose override — adds the full monitoring stack (Prometheus, Grafana, Alertmanager).
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+#
+# Requirements:
+#   The .env file (or environment) must define:
+#     METRICS_TOKEN  — bearer token that the backend requires on /metrics
+#                      (same value set in docker-compose.yml for the backend service)
+#
+# Exposed ports (bound to 127.0.0.1 only):
+#   9090 — Prometheus   http://localhost:9090
+#   3000 — Grafana      http://localhost:3000  (admin / admin — change immediately)
+#   9093 — Alertmanager http://localhost:9093
+
+services:
+  # Override the backend service to also join the monitoring network
+  # so Prometheus can reach it at backend:8080.
+  backend:
+    networks:
+      - default
+      - lsm-net
+
+  prometheus:
+    image: prom/prometheus:v3.4.0
+    restart: unless-stopped
+    environment:
+      # Prometheus 3.x expands ${VAR} in config files by default.
+      METRICS_TOKEN: ${METRICS_TOKEN:?set METRICS_TOKEN in .env}
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+      - '--enable-feature=expand-env-config'
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - lsm-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  grafana:
+    image: grafana/grafana:12.0.2
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/lsm-overview.json
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    networks:
+      - lsm-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    restart: unless-stopped
+    environment:
+      ALERTMANAGER_SMTP_PASSWORD: ${ALERTMANAGER_SMTP_PASSWORD:-}
+      ALERTMANAGER_WEBHOOK_URL: ${ALERTMANAGER_WEBHOOK_URL:-}
+      ALERTMANAGER_PAGERDUTY_URL: ${ALERTMANAGER_PAGERDUTY_URL:-}
+      ALERTMANAGER_SLO_WEBHOOK_URL: ${ALERTMANAGER_SLO_WEBHOOK_URL:-}
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.listen-address=0.0.0.0:9093'
+      - '--cluster.listen-address='
+    ports:
+      - "127.0.0.1:9093:9093"
+    networks:
+      - lsm-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9093/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+networks:
+  default:
+    name: ${COMPOSE_PROJECT_NAME:-lsm-tree-storage}_default
+    external: true
+  lsm-net:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  alertmanager-data:

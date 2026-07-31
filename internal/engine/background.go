@@ -238,19 +238,20 @@ func (e *LSMEngine) executeCompaction(inputs []*sstable.SSTableMeta, inputLevel,
 	})
 
 	// Build merge heap.
-	// Hold readersMu.RLock while accessing readers to prevent concurrent unregister.
+	// Pin each input reader via tc.get() so compaction cannot close them while
+	// their iterators are live in the heap. Releases are collected and called
+	// after the merge loop completes.
 	h := &mergeHeap{}
 	heap.Init(h)
 
-	// Hold readersMu.RLock for the entire merge loop so that unregisterReader
-	// cannot close an input SSTable whose iterator is still live in the heap.
-	e.readersMu.RLock()
+	inputReleases := make([]func(), 0, len(inputs))
 	for idx, meta := range inputs {
-		reader, ok := e.readers[meta.FileID]
+		reader, release, ok := e.tc.get(meta.FileID)
 		if !ok {
 			log.Printf("warn: compaction input reader missing for file %d", meta.FileID)
 			continue
 		}
+		inputReleases = append(inputReleases, release)
 		iter := reader.NewIterator()
 		iter.SeekToFirst()
 		if iter.Valid() {
@@ -344,9 +345,12 @@ func (e *LSMEngine) executeCompaction(inputs []*sstable.SSTableMeta, inputLevel,
 		}
 	}
 
-	// Merge loop complete; iterators are no longer needed. Release the read lock
-	// so that registerReader (called below for outputs) can take the write lock.
-	e.readersMu.RUnlock()
+	// Merge loop complete; release all pinned input readers so they can be
+	// evicted/closed by unregister() below.
+	for _, rel := range inputReleases {
+		rel()
+	}
+	inputReleases = nil
 
 	// Finalize last output file
 	if builder != nil {
@@ -364,18 +368,15 @@ func (e *LSMEngine) executeCompaction(inputs []*sstable.SSTableMeta, inputLevel,
 
 	// Open/register output readers before publishing manifest changes so the
 	// visible version never references an SSTable without an in-memory reader.
-	outputReaders := make(map[uint64]*sstable.SSTableReader, len(outputs))
 	for i := range outputs {
 		outputs[i].FilePath = filepath.Join(e.cfg.DataDir, fmt.Sprintf("%06d.sst", outputs[i].FileID))
-		reader, err := sstable.NewSSTableReader(outputs[i].FilePath, outputs[i], e.cache, e.bus)
-		if err != nil {
-			for _, opened := range outputReaders {
-				_ = opened.Close()
+		if err := e.tc.register(outputs[i].FileID, outputs[i], outputs[i].FilePath); err != nil {
+			// Unregister any outputs registered so far; the defer will handle the rest.
+			for j := 0; j < i; j++ {
+				e.tc.unregister(outputs[j].FileID)
 			}
 			return fmt.Errorf("open compaction output reader %d: %w", outputs[i].FileID, err)
 		}
-		outputReaders[outputs[i].FileID] = reader
-		e.registerReader(outputs[i].FileID, reader)
 	}
 
 	committed := false
@@ -385,7 +386,7 @@ func (e *LSMEngine) executeCompaction(inputs []*sstable.SSTableMeta, inputLevel,
 		}
 		// Remove output readers and physical files.
 		for _, meta := range outputs {
-			e.unregisterReader(meta.FileID)
+			e.tc.unregister(meta.FileID)
 			if meta.FilePath != "" {
 				_ = os.Remove(meta.FilePath)
 			}
@@ -434,9 +435,9 @@ func (e *LSMEngine) executeCompaction(inputs []*sstable.SSTableMeta, inputLevel,
 		}
 	}
 
-	// Unregister and delete input files (unregisterReader waits for in-progress reads)
+	// Unregister and delete input files.
 	for _, meta := range inputs {
-		e.unregisterReader(meta.FileID)
+		e.tc.unregister(meta.FileID)
 		path := filepath.Join(e.cfg.DataDir, fmt.Sprintf("%06d.sst", meta.FileID))
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			log.Printf("warn: remove input SSTable %s: %v", path, err)
