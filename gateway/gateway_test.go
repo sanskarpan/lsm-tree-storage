@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -499,4 +500,34 @@ func TestWSHub_RejectsTokenInQueryParam(t *testing.T) {
 	if resp != nil {
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	}
+}
+
+func TestHandler_PutRejectsOversizedValue(t *testing.T) {
+	_, srv := openGatewayTestServer(t, nil)
+
+	body := strings.NewReader(fmt.Sprintf(`{"key":"big","value":%q}`, strings.Repeat("x", 1<<20+1)))
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/db/put", body)
+	require.NoError(t, err)
+	req.Header.Set("Origin", srv.URL)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestHandler_BatchRejectsOversizedValue(t *testing.T) {
+	_, srv := openGatewayTestServer(t, nil)
+
+	payload := fmt.Sprintf(`{"entries":[{"key":"a","value":"ok"},{"key":"big","value":%q}]}`, strings.Repeat("x", 1<<20+1))
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/db/batch", strings.NewReader(payload))
+	require.NoError(t, err)
+	req.Header.Set("Origin", srv.URL)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }

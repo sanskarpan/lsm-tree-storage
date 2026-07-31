@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -93,6 +94,60 @@ func TestRaftNode_SnapshotRecoveryWithoutLocalEngineFiles(t *testing.T) {
 	value, err := reopened.Get(context.Background(), []byte("snap-key-3"))
 	require.NoError(t, err)
 	assert.Equal(t, []byte("snap-val-3"), value)
+}
+
+// Readers must never observe a closed engine while Snapshot shuts it
+// down and swaps in the reopened copy; the engineOpsMu gate makes the
+// close+reopen atomic with respect to in-flight reads.
+func TestRaftNode_SnapshotConcurrentWithReads(t *testing.T) {
+	nodes, cleanup := openTestCluster(t, 1)
+	defer cleanup()
+
+	node := waitForLeader(t, nodes, 10*time.Second)
+	require.NotNil(t, node)
+
+	for i := 0; i < 50; i++ {
+		key := []byte("k-" + strconv.Itoa(i))
+		require.NoError(t, node.Put(context.Background(), key, []byte("v-"+strconv.Itoa(i))))
+	}
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	errs := make(chan error, 1)
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				if _, err := node.Get(context.Background(), []byte("k-7")); err != nil {
+					select {
+					case errs <- err:
+					default:
+					}
+					return
+				}
+			}
+		}()
+	}
+
+	for i := 0; i < 5; i++ {
+		require.NoError(t, node.raft.Snapshot().Error())
+		time.Sleep(50 * time.Millisecond)
+	}
+	close(stop)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("read during snapshot failed: %v", err)
+	}
+	val, err := node.Get(context.Background(), []byte("k-7"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("v-7"), val)
 }
 
 func TestRaftNode_DynamicMembershipAddAndRemove(t *testing.T) {
@@ -388,7 +443,9 @@ func waitForReplicatedValue(t *testing.T, nodes []*RaftNode, key, expected []byt
 	for time.Now().Before(deadline) {
 		allMatch := true
 		for _, node := range nodes {
-			val, err := node.currentEngine().Get(key)
+			eng, release := node.engine()
+			val, err := eng.Get(key)
+			release()
 			if err != nil || string(val) != string(expected) {
 				allMatch = false
 				break
@@ -406,7 +463,9 @@ func waitForMissingValue(t *testing.T, node *RaftNode, key []byte, timeout time.
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		_, err := node.currentEngine().Get(key)
+		eng, release := node.engine()
+		_, err := eng.Get(key)
+		release()
 		if err == engine.ErrNotFound {
 			return
 		}

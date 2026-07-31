@@ -28,6 +28,11 @@ import (
 type RaftNode struct {
 	mu sync.RWMutex
 
+	// engineOpsMu serializes Snapshot/Restore/Close, which close the engine
+	// and swap in a reopened one, against readers and writers that are
+	// mid-operation on the previous engine. Always acquire after mu.
+	engineOpsMu sync.RWMutex
+
 	cfg        Config
 	engineCfg  engine.Config
 	clusterDir string
@@ -220,8 +225,13 @@ func (n *RaftNode) bridgeEngineBus(eng *engine.LSMEngine) {
 	}
 }
 
-func (n *RaftNode) currentEngine() *engine.LSMEngine {
-	return n.eng.Load()
+// engine returns the active engine together with a release function for the
+// engineOpsMu read lock. The release function must be called exactly once
+// when the caller is done with the engine, so Snapshot/Restore/Close cannot
+// close and swap the engine out from under an in-flight operation.
+func (n *RaftNode) engine() (*engine.LSMEngine, func()) {
+	n.engineOpsMu.RLock()
+	return n.eng.Load(), n.engineOpsMu.RUnlock
 }
 
 func (n *RaftNode) EventBus() *events.EventBus {
@@ -502,7 +512,9 @@ func (n *RaftNode) Get(ctx context.Context, key []byte) ([]byte, error) {
 
 func (n *RaftNode) GetWithConsistency(ctx context.Context, key []byte, consistency ReadConsistency) ([]byte, error) {
 	if normalizeReadConsistency(consistency) == ReadConsistencyEventual {
-		return n.currentEngine().Get(key)
+		eng, release := n.engine()
+		defer release()
+		return eng.Get(key)
 	}
 	if err := n.linearizableRead(ctx); err != nil {
 		if value, forwardErr := n.forwardGet(ctx, key); forwardErr == nil {
@@ -510,7 +522,9 @@ func (n *RaftNode) GetWithConsistency(ctx context.Context, key []byte, consisten
 		}
 		return nil, err
 	}
-	return n.currentEngine().Get(key)
+	eng, release := n.engine()
+	defer release()
+	return eng.Get(key)
 }
 
 func (n *RaftNode) Scan(ctx context.Context, start, end []byte, limit int) ([][2]string, error) {
@@ -519,7 +533,9 @@ func (n *RaftNode) Scan(ctx context.Context, start, end []byte, limit int) ([][2
 
 func (n *RaftNode) ScanWithConsistency(ctx context.Context, start, end []byte, limit int, consistency ReadConsistency) ([][2]string, error) {
 	if normalizeReadConsistency(consistency) == ReadConsistencyEventual {
-		return n.currentEngine().Scan(start, end, limit), nil
+		eng, release := n.engine()
+		defer release()
+		return eng.Scan(start, end, limit), nil
 	}
 	if err := n.linearizableRead(ctx); err != nil {
 		if results, forwardErr := n.forwardScan(ctx, start, end, limit); forwardErr == nil {
@@ -527,15 +543,21 @@ func (n *RaftNode) ScanWithConsistency(ctx context.Context, start, end []byte, l
 		}
 		return nil, err
 	}
-	return n.currentEngine().Scan(start, end, limit), nil
+	eng, release := n.engine()
+	defer release()
+	return eng.Scan(start, end, limit), nil
 }
 
 func (n *RaftNode) Version(context.Context) *manifest.Version {
-	return n.currentEngine().Manifest().Current()
+	eng, release := n.engine()
+	defer release()
+	return eng.Manifest().Current()
 }
 
 func (n *RaftNode) Stats(context.Context) map[string]interface{} {
-	stats := n.currentEngine().Stats()
+	eng, release := n.engine()
+	stats := eng.Stats()
+	release()
 	clusterStatus := n.Status(context.Background())
 	stats["cluster_enabled"] = true
 	stats["cluster_role"] = string(clusterStatus.Role)
@@ -546,7 +568,9 @@ func (n *RaftNode) Stats(context.Context) map[string]interface{} {
 }
 
 func (n *RaftNode) HealthStatus(context.Context) engine.HealthStatus {
-	status := n.currentEngine().HealthStatus()
+	eng, release := n.engine()
+	status := eng.HealthStatus()
+	release()
 	clusterStatus := n.Status(context.Background())
 	if clusterStatus.Role != RoleLeader && clusterStatus.Role != RoleFollower {
 		status.Ready = false
@@ -560,27 +584,39 @@ func (n *RaftNode) HealthStatus(context.Context) engine.HealthStatus {
 }
 
 func (n *RaftNode) RuntimeState(context.Context) engine.RuntimeState {
-	return n.currentEngine().State()
+	eng, release := n.engine()
+	defer release()
+	return eng.State()
 }
 
 func (n *RaftNode) EngineConfig(context.Context) engine.Config {
-	return n.currentEngine().Config()
+	eng, release := n.engine()
+	defer release()
+	return eng.Config()
 }
 
 func (n *RaftNode) MemTableSnapshot(_ context.Context, limit int) engine.MemTablesSnapshot {
-	return n.currentEngine().MemTableSnapshot(limit)
+	eng, release := n.engine()
+	defer release()
+	return eng.MemTableSnapshot(limit)
 }
 
 func (n *RaftNode) ForceFlush(context.Context) {
-	n.currentEngine().ForceFlush()
+	eng, release := n.engine()
+	defer release()
+	eng.ForceFlush()
 }
 
 func (n *RaftNode) ForceCompaction(_ context.Context, level int) {
-	n.currentEngine().ForceCompaction(level)
+	eng, release := n.engine()
+	defer release()
+	eng.ForceCompaction(level)
 }
 
 func (n *RaftNode) SetCompactionStyle(_ context.Context, style string) {
-	n.currentEngine().SetCompactionStyle(style)
+	eng, release := n.engine()
+	defer release()
+	eng.SetCompactionStyle(style)
 }
 
 func (n *RaftNode) Close() error {
@@ -602,6 +638,8 @@ func (n *RaftNode) Close() error {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	n.engineOpsMu.Lock()
+	defer n.engineOpsMu.Unlock()
 	if eng := n.eng.Load(); eng != nil {
 		if err := eng.Close(); err != nil && firstErr == nil {
 			firstErr = err
@@ -845,6 +883,7 @@ func (f *raftFSM) Apply(logEntry *raft.Log) interface{} {
 		return nil
 	}
 	f.node.mu.RUnlock()
+	f.node.engineOpsMu.RLock()
 	eng := f.node.eng.Load()
 
 	switch cmd.Type {
@@ -865,6 +904,7 @@ func (f *raftFSM) Apply(logEntry *raft.Log) interface{} {
 	default:
 		err = fmt.Errorf("cluster: unsupported command %q", cmd.Type)
 	}
+	f.node.engineOpsMu.RUnlock()
 	if err != nil {
 		return err
 	}
@@ -892,6 +932,8 @@ func (f *raftFSM) Snapshot() (raft.FSMSnapshot, error) {
 
 	node.mu.Lock()
 	defer node.mu.Unlock()
+	node.engineOpsMu.Lock()
+	defer node.engineOpsMu.Unlock()
 
 	old := node.eng.Load()
 	if old != nil {
@@ -942,6 +984,8 @@ func (f *raftFSM) Restore(snapshot io.ReadCloser) error {
 
 	node.mu.Lock()
 	defer node.mu.Unlock()
+	node.engineOpsMu.Lock()
+	defer node.engineOpsMu.Unlock()
 
 	old := node.eng.Load()
 	if old != nil {

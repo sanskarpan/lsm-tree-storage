@@ -20,6 +20,7 @@ type Config struct {
 	Level0FileNumCompactionTrigger int
 	Level0StopWritesTrigger        int
 	MaxImmutableMemTables          int
+	MaxValueSize                   int64 // bytes; Put/Write reject larger values
 	CompactionStyle                string // "leveled" | "size-tiered" | "time-window"
 	TimeWindowSize                 time.Duration
 }
@@ -40,6 +41,7 @@ func DefaultConfig(dataDir string) Config {
 		Level0FileNumCompactionTrigger: 4,
 		Level0StopWritesTrigger:        12,
 		MaxImmutableMemTables:          2,
+		MaxValueSize:                   1024 * 1024, // 1MB
 		CompactionStyle:                "leveled",
 		TimeWindowSize:                 time.Hour,
 	}
