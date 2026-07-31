@@ -49,6 +49,60 @@ type Handler struct {
 	apiToken        string
 	walMu           sync.Mutex
 	recentWAL       []walEventSnapshot
+	rateLimiter     *ipRateLimiter
+}
+
+// ipRateLimiter is a simple per-IP token bucket rate limiter that requires no
+// external dependencies. It is goroutine-safe.
+type ipRateLimiter struct {
+	mu       sync.Mutex
+	visitors map[string]*rateLimitEntry
+}
+
+type rateLimitEntry struct {
+	tokens    int
+	lastReset time.Time
+}
+
+const (
+	rateLimitBurst  = 100 // max requests per window per IP
+	rateLimitWindow = time.Second
+)
+
+func newIPRateLimiter() *ipRateLimiter {
+	rl := &ipRateLimiter{visitors: make(map[string]*rateLimitEntry)}
+	go rl.cleanupLoop()
+	return rl
+}
+
+func (rl *ipRateLimiter) cleanupLoop() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		rl.mu.Lock()
+		now := time.Now()
+		for ip, e := range rl.visitors {
+			if now.Sub(e.lastReset) > 10*time.Minute {
+				delete(rl.visitors, ip)
+			}
+		}
+		rl.mu.Unlock()
+	}
+}
+
+func (rl *ipRateLimiter) allow(ip string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	e, ok := rl.visitors[ip]
+	if !ok || time.Since(e.lastReset) > rateLimitWindow {
+		rl.visitors[ip] = &rateLimitEntry{tokens: rateLimitBurst - 1, lastReset: time.Now()}
+		return true
+	}
+	if e.tokens <= 0 {
+		return false
+	}
+	e.tokens--
+	return true
 }
 
 type walEventSnapshot struct {
@@ -67,6 +121,7 @@ func NewHandler(node cluster.Node, hub *WSHub, opts HandlerOptions) *Handler {
 		httpClient:     &http.Client{Timeout: 10 * time.Second},
 		allowedOrigins: append([]string(nil), opts.AllowedOrigins...),
 		apiToken:       strings.TrimSpace(opts.APIToken),
+		rateLimiter:    newIPRateLimiter(),
 	}
 	if bus := node.EventBus(); bus != nil {
 		bus.Subscribe(events.EvtWALAppend, h.recordWALEvent)
@@ -150,7 +205,7 @@ func (h *Handler) writeNodeError(w http.ResponseWriter, err error) bool {
 		return true
 	}
 	if errors.Is(err, engine.ErrValueTooLarge) {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return true
 	}
 	return false
@@ -177,14 +232,14 @@ func (h *Handler) maybeForwardRead(w http.ResponseWriter, r *http.Request, err e
 	targetURL := strings.TrimRight(targetBase, "/") + r.URL.RequestURI()
 	req, reqErr := http.NewRequestWithContext(r.Context(), http.MethodGet, targetURL, nil)
 	if reqErr != nil {
-		http.Error(w, reqErr.Error(), http.StatusBadGateway)
+		writeJSONError(w, http.StatusBadGateway, reqErr.Error())
 		return true
 	}
 	req.Header = r.Header.Clone()
 	req.Header.Set("X-LSM-Forwarded", "1")
 	resp, respErr := h.httpClient.Do(req)
 	if respErr != nil {
-		http.Error(w, respErr.Error(), http.StatusBadGateway)
+		writeJSONError(w, http.StatusBadGateway, respErr.Error())
 		return true
 	}
 	defer resp.Body.Close()
@@ -207,6 +262,29 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// writeJSONError writes a JSON error response with the given HTTP status code.
+// All error responses go through this helper so that clients always receive
+// Content-Type: application/json, regardless of which handler raises the error.
+func writeJSONError(w http.ResponseWriter, code int, msg string) {
+	writeJSON(w, code, map[string]string{"error": msg})
+}
+
+// RateLimitMiddleware wraps next with per-IP token-bucket rate limiting.
+// Requests that exceed the limit receive 429 Too Many Requests in JSON.
+func (h *Handler) RateLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := r.RemoteAddr
+		if idx := strings.LastIndex(ip, ":"); idx != -1 {
+			ip = ip[:idx]
+		}
+		if !h.rateLimiter.allow(ip) {
+			writeJSONError(w, http.StatusTooManyRequests, "rate limit exceeded")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func corsHeaders(w http.ResponseWriter, origin string) {
 	if origin != "" {
 		w.Header().Set("Vary", "Origin")
@@ -222,7 +300,7 @@ func (h *Handler) applyCORS(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	if !originAllowedWithAuth(origin, requestScheme(r), r.Host, h.allowedOrigins, h.apiToken != "") {
-		http.Error(w, "origin not allowed", http.StatusForbidden)
+		writeJSONError(w, http.StatusForbidden, "origin not allowed")
 		return false
 	}
 	corsHeaders(w, origin)
@@ -256,7 +334,7 @@ func (h *Handler) requireAuth(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	w.Header().Set("WWW-Authenticate", `Bearer realm="lsm-engine"`)
-	http.Error(w, "unauthorized", http.StatusUnauthorized)
+	writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 	return false
 }
 
@@ -269,14 +347,14 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst interface{}, lim
 	if err := dec.Decode(dst); err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
-			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			writeJSONError(w, http.StatusRequestEntityTooLarge, "request body too large")
 			return false
 		}
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return false
 	}
 	if dec.More() {
-		http.Error(w, "request body must contain a single JSON object", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "request body must contain a single JSON object")
 		return false
 	}
 	return true
@@ -385,7 +463,7 @@ func (h *Handler) handlePut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	var req putRequest
@@ -396,22 +474,22 @@ func (h *Handler) handlePut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Key == "" {
-		http.Error(w, "key required", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "key required")
 		return
 	}
 	if len(req.Key) > maxKeySizeBytes {
-		http.Error(w, fmt.Sprintf("key too large (max %d bytes)", maxKeySizeBytes), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("key too large (max %d bytes)", maxKeySizeBytes))
 		return
 	}
 	if len(req.Value) > maxValueSizeBytes {
-		http.Error(w, fmt.Sprintf("value too large (max %d bytes)", maxValueSizeBytes), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("value too large (max %d bytes)", maxValueSizeBytes))
 		return
 	}
 	if err := h.node.Put(h.requestContext(r), []byte(req.Key), []byte(req.Value)); err != nil {
 		if h.writeNodeError(w, err) {
 			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -428,7 +506,7 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -436,12 +514,12 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 	}
 	key := r.URL.Query().Get("key")
 	if key == "" {
-		http.Error(w, "key required", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "key required")
 		return
 	}
 	consistency, err := parseReadConsistency(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	val, err := h.node.GetWithConsistency(h.requestContext(r), []byte(key), consistency)
@@ -456,7 +534,7 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 		if h.writeNodeError(w, err) {
 			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, getResponse{Key: key, Value: string(val), Found: true})
@@ -471,7 +549,7 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodDelete && r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -479,18 +557,18 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	key := r.URL.Query().Get("key")
 	if key == "" {
-		http.Error(w, "key required", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "key required")
 		return
 	}
 	if len(key) > maxKeySizeBytes {
-		http.Error(w, fmt.Sprintf("key too large (max %d bytes)", maxKeySizeBytes), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("key too large (max %d bytes)", maxKeySizeBytes))
 		return
 	}
 	if err := h.node.Delete(h.requestContext(r), []byte(key)); err != nil {
 		if h.writeNodeError(w, err) {
 			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -508,7 +586,7 @@ func (h *Handler) handleScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -525,7 +603,7 @@ func (h *Handler) handleScan(w http.ResponseWriter, r *http.Request) {
 	}
 	consistency, err := parseReadConsistency(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -539,7 +617,7 @@ func (h *Handler) handleScan(w http.ResponseWriter, r *http.Request) {
 		if h.writeNodeError(w, err) {
 			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -572,7 +650,7 @@ func (h *Handler) handleLevels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -611,7 +689,7 @@ func (h *Handler) handleBloom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -627,12 +705,12 @@ func (h *Handler) handleBloom(w http.ResponseWriter, r *http.Request) {
 	}
 	parts := strings.Split(p, "/")
 	if len(parts) == 0 || parts[0] == "" {
-		http.Error(w, "fileID required", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "fileID required")
 		return
 	}
 	fileID, err := strconv.ParseUint(parts[0], 10, 64)
 	if err != nil {
-		http.Error(w, "invalid fileID", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid fileID")
 		return
 	}
 
@@ -654,7 +732,7 @@ func (h *Handler) handleBloom(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	http.Error(w, "SSTable not found", http.StatusNotFound)
+	writeJSONError(w, http.StatusNotFound, "SSTable not found")
 }
 
 func estimateFPRate(bitsPerKey int) float64 {
@@ -674,7 +752,7 @@ func (h *Handler) handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -690,7 +768,7 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -701,7 +779,7 @@ func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	status := h.node.HealthStatus(h.requestContext(r))
@@ -733,7 +811,7 @@ func (h *Handler) handleBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	var req batchRequest
@@ -746,15 +824,15 @@ func (h *Handler) handleBatch(w http.ResponseWriter, r *http.Request) {
 	batch := &engine.WriteBatch{}
 	for _, e := range req.Entries {
 		if e.Key == "" {
-			http.Error(w, "entries[].key required", http.StatusBadRequest)
+			writeJSONError(w, http.StatusBadRequest, "entries[].key required")
 			return
 		}
 		if len(e.Key) > maxKeySizeBytes {
-			http.Error(w, fmt.Sprintf("entries[].key too large (max %d bytes)", maxKeySizeBytes), http.StatusBadRequest)
+			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("entries[].key too large (max %d bytes)", maxKeySizeBytes))
 			return
 		}
 		if !e.Delete && len(e.Value) > maxValueSizeBytes {
-			http.Error(w, fmt.Sprintf("entries[].value too large (max %d bytes)", maxValueSizeBytes), http.StatusBadRequest)
+			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("entries[].value too large (max %d bytes)", maxValueSizeBytes))
 			return
 		}
 		if e.Delete {
@@ -767,7 +845,7 @@ func (h *Handler) handleBatch(w http.ResponseWriter, r *http.Request) {
 		if h.writeNodeError(w, err) {
 			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -780,7 +858,7 @@ func (h *Handler) handleAmplification(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -809,7 +887,7 @@ func (h *Handler) handleCompactionForce(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	var req compactionForceRequest
@@ -820,7 +898,7 @@ func (h *Handler) handleCompactionForce(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if req.Level < 0 {
-		http.Error(w, "level must be >= 0", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "level must be >= 0")
 		return
 	}
 	h.node.ForceCompaction(h.requestContext(r), req.Level)
@@ -840,7 +918,7 @@ func (h *Handler) handleCompactionStyle(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	var req compactionStyleRequest
@@ -852,7 +930,7 @@ func (h *Handler) handleCompactionStyle(w http.ResponseWriter, r *http.Request) 
 	}
 	valid := map[string]bool{"leveled": true, "size-tiered": true, "time-window": true}
 	if !valid[req.Style] {
-		http.Error(w, "invalid style; use leveled|size-tiered|time-window", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid style; use leveled|size-tiered|time-window")
 		return
 	}
 	h.node.SetCompactionStyle(h.requestContext(r), req.Style)
@@ -877,7 +955,7 @@ func (h *Handler) handleBenchRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	var req benchRequest
@@ -888,15 +966,15 @@ func (h *Handler) handleBenchRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.NumKeys <= 0 || req.NumKeys > maxBenchKeys {
-		http.Error(w, "num_keys must be between 1 and 1000000", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "num_keys must be between 1 and 1000000")
 		return
 	}
 	if req.ValueSize <= 0 || req.ValueSize > maxValueSizeBytes {
-		http.Error(w, "value_size must be between 1 and 1048576", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "value_size must be between 1 and 1048576")
 		return
 	}
 	if req.ReadWriteRatio < 0 || req.ReadWriteRatio > 1 {
-		http.Error(w, "read_write_ratio must be between 0 and 1", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "read_write_ratio must be between 0 and 1")
 		return
 	}
 	cfg := simulation.WorkloadConfig{
@@ -917,7 +995,7 @@ func (h *Handler) handleBenchRun(w http.ResponseWriter, r *http.Request) {
 		simulation.WorkloadPointDelete:      true,
 	}
 	if !validTypes[cfg.Type] {
-		http.Error(w, "invalid benchmark type", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid benchmark type")
 		return
 	}
 	status := h.node.Status(h.requestContext(r))
@@ -950,7 +1028,7 @@ func (h *Handler) handleScenariosList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -979,7 +1057,7 @@ func (h *Handler) handleScenarioRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -995,7 +1073,7 @@ func (h *Handler) handleScenarioRun(w http.ResponseWriter, r *http.Request) {
 	}
 	parts := strings.Split(p, "/")
 	if len(parts) < 1 || parts[0] == "" {
-		http.Error(w, "scenario name required", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "scenario name required")
 		return
 	}
 	name := simulation.ScenarioName(parts[0])
@@ -1012,7 +1090,7 @@ func (h *Handler) handleScenarioRun(w http.ResponseWriter, r *http.Request) {
 		if h.writeNodeError(w, err) {
 			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "done", "scenario": string(name)})
@@ -1026,7 +1104,7 @@ func (h *Handler) handleOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -1051,7 +1129,7 @@ func (h *Handler) handleClose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -1077,7 +1155,7 @@ func (h *Handler) handleCompactionStats(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -1107,7 +1185,7 @@ func (h *Handler) handleBenchResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -1125,7 +1203,7 @@ func (h *Handler) handleWALEntries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -1159,7 +1237,7 @@ func (h *Handler) handleMemTableSnapshot(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -1243,7 +1321,7 @@ func (h *Handler) handleCacheStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -1263,7 +1341,7 @@ func (h *Handler) handleClusterStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -1280,7 +1358,7 @@ func (h *Handler) handleClusterLeader(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -1299,7 +1377,7 @@ func (h *Handler) handleClusterPeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -1315,7 +1393,7 @@ func (h *Handler) handleClusterShards(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -1337,7 +1415,7 @@ func (h *Handler) handleClusterAddPeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -1357,10 +1435,10 @@ func (h *Handler) handleClusterAddPeer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, cluster.ErrUnsupported) {
-			http.Error(w, err.Error(), http.StatusNotImplemented)
+			writeJSONError(w, http.StatusNotImplemented, err.Error())
 			return
 		}
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -1378,7 +1456,7 @@ func (h *Handler) handleClusterRemovePeer(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {
@@ -1393,10 +1471,10 @@ func (h *Handler) handleClusterRemovePeer(w http.ResponseWriter, r *http.Request
 			return
 		}
 		if errors.Is(err, cluster.ErrUnsupported) {
-			http.Error(w, err.Error(), http.StatusNotImplemented)
+			writeJSONError(w, http.StatusNotImplemented, err.Error())
 			return
 		}
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -1410,7 +1488,7 @@ func (h *Handler) handleClusterReadiness(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if !h.requireAuth(w, r) {

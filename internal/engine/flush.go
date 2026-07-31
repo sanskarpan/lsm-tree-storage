@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 
 	"lsm-engine/internal/events"
 	"lsm-engine/internal/manifest"
@@ -30,6 +31,8 @@ func (e *LSMEngine) flushWorker() {
 			}
 		case imm := <-e.flushQueue:
 			if err := e.flush(imm); err != nil {
+				// Fix #108: record the error so further writes are blocked.
+				e.setBgError(err)
 				log.Printf("flush error: %v", err)
 				// Even on error, remove from immutables and broadcast to unblock ForceFlush
 				e.mu.Lock()
@@ -118,6 +121,16 @@ func (e *LSMEngine) flush(imm *immutableMemtable) error {
 		e.unregisterReader(fileID)
 		_ = os.Remove(path) // orphaned; will be cleaned on next recovery
 		return fmt.Errorf("manifest apply: %w", err)
+	}
+
+	// Fix #100: persist the current seqNo so that after a clean restart (WAL is
+	// empty post-flush) SSTableReader.Get uses a readSeqNo that covers all flushed
+	// entries. Non-fatal: worst case is a redundant seqNo persist on next flush.
+	if seqErr := e.manifest.Apply(manifest.VersionEdit{
+		Type:     manifest.EditMaxSeqNo,
+		MaxSeqNo: atomic.LoadUint64(&e.seqNo),
+	}); seqErr != nil {
+		log.Printf("warn: persist max seq no: %v", seqErr)
 	}
 
 	e.mu.Lock()

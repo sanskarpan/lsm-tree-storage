@@ -486,9 +486,10 @@ func (n *RaftNode) linearizableRead(ctx context.Context) error {
 	if n.raft.State() != raft.Leader {
 		return n.requireLeader()
 	}
-	if n.readLeaseValid() {
-		return nil
-	}
+	// Always call VerifyLeader regardless of the read lease to guarantee
+	// linearizability (GitHub issue #117). The lease window can span a
+	// leadership change, so skipping the quorum check during the lease would
+	// allow stale reads from a node that is no longer the leader.
 	verify := n.raft.VerifyLeader()
 	done := make(chan error, 1)
 	go func() {
@@ -667,6 +668,42 @@ func (n *RaftNode) resolveClientAddress(leaderID, leaderRPC string) string {
 	return normalizeClientAddress(leaderRPC)
 }
 
+// isKnownPeer reports whether addr is one of the statically configured peer
+// addresses (client or RPC) or this node's own addresses. It is used to
+// prevent SSRF: forwarding helpers must only contact addresses that were
+// present in the cluster configuration at startup (GitHub issue #113).
+func (n *RaftNode) isKnownPeer(addr string) bool {
+	addr = strings.TrimRight(strings.TrimSpace(addr), "/")
+	if addr == "" {
+		return false
+	}
+	normalize := func(candidate string) string {
+		return strings.TrimRight(normalizeClientAddress(candidate), "/")
+	}
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	// Own node — any of its known addresses qualifies.
+	if a := normalize(n.cfg.ClientAddress); a != "" && a == addr {
+		return true
+	}
+	if a := normalize(n.cfg.AdvertiseAddress); a != "" && a == addr {
+		return true
+	}
+	if a := normalize(n.cfg.BindAddress); a != "" && a == addr {
+		return true
+	}
+	// All registered peers (client address and RPC address both count).
+	for _, peer := range n.peerRegistry {
+		if a := normalize(peer.ClientAddress); a != "" && a == addr {
+			return true
+		}
+		if a := normalize(peer.RPCAddress); a != "" && a == addr {
+			return true
+		}
+	}
+	return false
+}
+
 func (n *RaftNode) refreshReadLease() {
 	lease := n.cfg.HeartbeatInterval
 	if lease <= 0 {
@@ -763,6 +800,9 @@ func (n *RaftNode) forwardRead(ctx context.Context, path string, dst interface{}
 	if leader == "" {
 		return 0, fmt.Errorf("cluster: leader address unknown")
 	}
+	if !n.isKnownPeer(leader) {
+		return 0, fmt.Errorf("cluster: leader address %q is not in the known peer list", leader)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(leader, "/")+path, nil)
 	if err != nil {
 		return 0, err
@@ -825,6 +865,9 @@ func (n *RaftNode) forwardWriteJSON(ctx context.Context, method, path string, pa
 	if target == "" {
 		return 0, fmt.Errorf("cluster: leader address unknown")
 	}
+	if !n.isKnownPeer(target) {
+		return 0, fmt.Errorf("cluster: leader address %q is not in the known peer list", target)
+	}
 	return n.forwardJSON(ctx, method, target, path, payload, dst)
 }
 
@@ -854,6 +897,9 @@ func (n *RaftNode) forwardJSON(ctx context.Context, method, targetBase, path str
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&forwardErr)
 		if resp.StatusCode == http.StatusConflict && forwardErr.LeaderAddress != "" && forwardErr.LeaderAddress != targetBase {
+			if !n.isKnownPeer(forwardErr.LeaderAddress) {
+				return resp.StatusCode, fmt.Errorf("cluster: redirected leader address %q is not in the known peer list", forwardErr.LeaderAddress)
+			}
 			return n.forwardJSON(ctx, method, forwardErr.LeaderAddress, path, payload, dst)
 		}
 		body, _ := io.ReadAll(resp.Body)

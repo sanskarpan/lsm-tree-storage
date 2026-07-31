@@ -5,6 +5,12 @@ package sstable
 
 import "bytes"
 
+// FormatVersion is written at footer offset 32 so readers can reject files
+// written by an incompatible future layout.  Version 0 is the legacy format
+// (no version field; those bytes were zero-padding) and is accepted for
+// backward compatibility.  Version 1 is the current format.
+const FormatVersion uint32 = 1
+
 // EntryType identifies whether a key-value entry is a live value or a deletion tombstone.
 type EntryType uint8
 

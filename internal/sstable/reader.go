@@ -4,6 +4,7 @@ package sstable
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 
@@ -48,6 +49,15 @@ func NewSSTableReader(path string, meta SSTableMeta, blockCache *cache.BlockCach
 	if magic != MagicNumber {
 		_ = f.Close()
 		return nil, ErrCorruptSSTable
+	}
+
+	// Validate format version.  Version 0 is the legacy format (old files have
+	// zero-padding at offset 32) and is accepted for backward compatibility.
+	// Any other unknown version is rejected to prevent silent misreads.
+	version := binary.LittleEndian.Uint32(footer[32:])
+	if version != 0 && version != FormatVersion {
+		_ = f.Close()
+		return nil, fmt.Errorf("sstable: unsupported format version %d", version)
 	}
 
 	// Decode filter handle and index handle

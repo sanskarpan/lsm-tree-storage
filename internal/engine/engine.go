@@ -93,6 +93,9 @@ type HealthStatus struct {
 	Level0Files              int          `json:"level0_files"`
 	Level0StopWritesTrigger  int          `json:"level0_stop_writes_trigger"`
 	Reasons                  []string     `json:"reasons,omitempty"`
+	// BgError is non-empty when a background flush or compaction error has
+	// permanently poisoned the engine. Writes are blocked until restart.
+	BgError string `json:"bg_error,omitempty"`
 }
 
 // LSMEngine is the main storage engine
@@ -136,6 +139,11 @@ type LSMEngine struct {
 
 	nextFileID atomic.Uint64
 
+	// bgError is set by the flush/compaction worker when a background operation
+	// fails fatally. Once set it blocks all further writes until the engine is
+	// restarted (data is safe in the WAL).
+	bgError atomic.Pointer[error]
+
 	closeOnce sync.Once
 	closeCh   chan struct{}
 }
@@ -174,6 +182,9 @@ func Open(cfg Config) (*LSMEngine, error) {
 	}
 	if cfg.MaxValueSize <= 0 {
 		cfg.MaxValueSize = 1024 * 1024
+	}
+	if cfg.WriteStallTimeout == 0 {
+		cfg.WriteStallTimeout = 30 * time.Second
 	}
 
 	if err := os.MkdirAll(cfg.DataDir, 0755); err != nil {
@@ -229,13 +240,22 @@ func Open(cfg Config) (*LSMEngine, error) {
 func (e *LSMEngine) recover() error {
 	// 1. Replay MANIFEST to get the current version (reads without writing)
 	manifestPath := filepath.Join(e.cfg.DataDir, "MANIFEST")
-	version, err := manifest.Recover(manifestPath)
+	version, usedCRC, err := manifest.Recover(manifestPath)
 	if err != nil {
 		return fmt.Errorf("manifest recovery: %w", err)
 	}
 
-	// Install recovered version without writing new edits to disk
+	// Install recovered version without writing new edits to disk.
+	// SetFormat must be called before any Apply so new records use the same
+	// on-disk format as existing records in the file (CRC vs. legacy).
 	e.manifest.SetCurrent(version)
+	e.manifest.SetFormat(usedCRC)
+
+	// Restore seqNo from MANIFEST so SSTable reads are visible even if WAL is
+	// empty (clean flush+restart scenario — fix for issue #100).
+	if version.MaxSeqNo > 0 {
+		e.seqNo = version.MaxSeqNo
+	}
 
 	// 2. Open SSTable readers from recovered version
 	for level, ssts := range version.Levels {
@@ -327,6 +347,15 @@ func (e *LSMEngine) recover() error {
 	}
 	e.nextFileID.Store(nextFileID)
 
+	// Fix #105: If recovery inflated the memtable beyond MemTableSize, flush it
+	// synchronously now (before the flush worker starts) to avoid OOM from large
+	// WAL backlogs. Non-fatal: data is in WAL and will be recovered next restart.
+	if e.memTable.ApproximateSize() > e.cfg.MemTableSize {
+		if err := e.recoverFlushOversizedMemtable(); err != nil {
+			log.Printf("warn: recovery flush oversized memtable: %v", err)
+		}
+	}
+
 	if version.LogNumber != activeLogNumber {
 		if err := e.manifest.Apply(manifest.VersionEdit{
 			Type:      manifest.EditLogNumber,
@@ -336,6 +365,67 @@ func (e *LSMEngine) recover() error {
 		}
 	}
 
+	return nil
+}
+
+// recoverFlushOversizedMemtable writes the current (recovery-inflated) memtable
+// to a new L0 SSTable and resets e.memTable to an empty table. Called only from
+// recover() to prevent OOM when large WAL backlogs produce an oversized memtable.
+func (e *LSMEngine) recoverFlushOversizedMemtable() error {
+	fileID := e.nextFileID.Add(1)
+	path := filepath.Join(e.cfg.DataDir, fmt.Sprintf("%06d.sst", fileID))
+
+	builder, err := sstable.NewSSTableBuilder(path, fileID, 0, e.cfg.BlockSize, e.cfg.BloomBitsPerKey)
+	if err != nil {
+		return fmt.Errorf("create sstable builder: %w", err)
+	}
+
+	iter := e.memTable.NewIterator()
+	for iter.Valid() {
+		if err := builder.Add(iter.Key(), iter.Value()); err != nil {
+			_ = builder.Close()
+			_ = os.Remove(path)
+			return fmt.Errorf("add to sstable: %w", err)
+		}
+		iter.Next()
+	}
+
+	if builder.NumEntries() == 0 {
+		_ = builder.Close()
+		_ = os.Remove(path)
+		return nil
+	}
+
+	meta, err := builder.Finish()
+	if err != nil {
+		_ = builder.Close()
+		_ = os.Remove(path)
+		return fmt.Errorf("finish sstable: %w", err)
+	}
+	_ = builder.Close()
+
+	meta.FilePath = path
+	reader, err := sstable.NewSSTableReader(path, meta, e.cache, e.bus)
+	if err != nil {
+		_ = os.Remove(path)
+		return fmt.Errorf("open sstable reader: %w", err)
+	}
+	e.registerReader(fileID, reader)
+
+	if err := e.manifest.Apply(manifest.VersionEdit{
+		Type:     manifest.EditAddSSTable,
+		Level:    0,
+		FileID:   fileID,
+		FileSize: meta.FileSize,
+		FirstKey: meta.FirstKey,
+		LastKey:  meta.LastKey,
+	}); err != nil {
+		e.unregisterReader(fileID)
+		_ = os.Remove(path)
+		return fmt.Errorf("manifest apply: %w", err)
+	}
+
+	e.memTable = memtable.NewMemTable(e.cfg.MemTableSize)
 	return nil
 }
 
@@ -446,6 +536,21 @@ func (b *WriteBatch) Delete(key []byte) {
 	b.entries = append(b.entries, BatchEntry{Key: key, Delete: true})
 }
 
+// setBgError records a fatal background error. Subsequent writes will fail until
+// the engine is restarted.
+func (e *LSMEngine) setBgError(err error) {
+	errCopy := err
+	e.bgError.Store(&errCopy)
+}
+
+// checkBgError returns the stored background error, if any.
+func (e *LSMEngine) checkBgError() error {
+	if p := e.bgError.Load(); p != nil {
+		return fmt.Errorf("engine: background error (requires restart): %w", *p)
+	}
+	return nil
+}
+
 // Write atomically applies all entries in the batch to the engine.
 // All batch entries are durably persisted in a single WAL record before the
 // MemTable is mutated, so recovery never observes a partial batch.
@@ -455,6 +560,9 @@ func (e *LSMEngine) Write(batch *WriteBatch) error {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if err := e.checkBgError(); err != nil {
+		return err
+	}
 	walEntries := make([]wal.WALEntry, 0, len(batch.entries))
 	for _, entry := range batch.entries {
 		if !entry.Delete && int64(len(entry.Value)) > e.cfg.MaxValueSize {
@@ -507,6 +615,9 @@ func (e *LSMEngine) putLocked(key, value []byte) error {
 	if int64(len(value)) > e.cfg.MaxValueSize {
 		return ErrValueTooLarge
 	}
+	if err := e.checkBgError(); err != nil {
+		return err
+	}
 
 	seqNo := atomic.AddUint64(&e.seqNo, 1)
 
@@ -538,6 +649,9 @@ func (e *LSMEngine) putLocked(key, value []byte) error {
 func (e *LSMEngine) Delete(key []byte) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if err := e.checkBgError(); err != nil {
+		return err
+	}
 
 	seqNo := atomic.AddUint64(&e.seqNo, 1)
 
@@ -563,8 +677,30 @@ func (e *LSMEngine) Delete(key []byte) error {
 }
 
 func (e *LSMEngine) rotateMemTable() error {
+	// Fail fast if a background flush error has already poisoned the engine.
+	if err := e.checkBgError(); err != nil {
+		return err
+	}
+
+	// Wait for a flush slot, but not forever — a stalled flush worker would
+	// otherwise block all writes indefinitely (fix for issue #109).
+	deadline := time.Now().Add(e.cfg.WriteStallTimeout)
 	for len(e.immutables) >= e.cfg.MaxImmutableMemTables {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return fmt.Errorf("engine: write stall timeout (%v): flush worker is not making progress", e.cfg.WriteStallTimeout)
+		}
+		// Arm a timer that broadcasts the cond at deadline so we wake up even
+		// if the flush worker is permanently stuck.
+		timer := time.AfterFunc(remaining, func() { e.flushCond.Broadcast() })
 		e.flushCond.Wait()
+		timer.Stop()
+		if err := e.checkBgError(); err != nil {
+			return err
+		}
+		if time.Now().After(deadline) && len(e.immutables) >= e.cfg.MaxImmutableMemTables {
+			return fmt.Errorf("engine: write stall timeout (%v): flush worker is not making progress", e.cfg.WriteStallTimeout)
+		}
 	}
 
 	newLogNumber := e.nextFileID.Add(1)
@@ -940,6 +1076,11 @@ func (e *LSMEngine) HealthStatus() HealthStatus {
 		status.Ready = false
 		status.Reasons = append(status.Reasons, "level0 stop-writes threshold reached")
 	}
+	if bgErr := e.checkBgError(); bgErr != nil {
+		status.BgError = bgErr.Error()
+		status.Ready = false
+		status.Reasons = append(status.Reasons, "background flush error: "+bgErr.Error())
+	}
 
 	return status
 }
@@ -1056,33 +1197,10 @@ func (e *LSMEngine) Scan(start, end []byte, limit int) [][2]string {
 	e.readersMu.RLock()
 	defer e.readersMu.RUnlock()
 
-	// 1. L1+ SSTables (lowest priority; no overlapping ranges at each level)
-	for lvl := 1; lvl < manifest.MaxLevels; lvl++ {
-		for _, meta := range version.Levels[lvl] {
-			if !tableOverlapsRange(meta.FirstKey, meta.LastKey, start, end) {
-				continue
-			}
-			reader, ok := e.readers[meta.FileID]
-			if !ok {
-				continue
-			}
-			it := reader.NewIterator()
-			for it.Valid() {
-				ik := it.Key()
-				if len(start) > 0 && bytes.Compare(ik.UserKey, start) < 0 {
-					it.Next()
-					continue
-				}
-				if len(end) > 0 && bytes.Compare(ik.UserKey, end) >= 0 {
-					break
-				}
-				addSST(ik.UserKey, it.Value(), ik.Type == sstable.TypeDeletion)
-				it.Next()
-			}
-		}
-	}
-
-	// 2. L0 SSTables newest-first (higher priority than L1+)
+	// 1. L0 SSTables newest-first (highest priority among SSTs).
+	// Processing L0 first ensures its entries claim the winners slot before L1+
+	// can overwrite them (addSST is first-wins). This fixes issue #101 where
+	// L1+ data was silently shadowing fresher L0 writes.
 	l0 := make([]*sstable.SSTableMeta, len(version.Levels[0]))
 	copy(l0, version.Levels[0])
 	sort.Slice(l0, func(i, j int) bool { return l0[i].FileID > l0[j].FileID })
@@ -1106,6 +1224,32 @@ func (e *LSMEngine) Scan(start, end []byte, limit int) [][2]string {
 			}
 			addSST(ik.UserKey, it.Value(), ik.Type == sstable.TypeDeletion)
 			it.Next()
+		}
+	}
+
+	// 2. L1+ SSTables (lower priority; L0 entries above already claimed their keys).
+	for lvl := 1; lvl < manifest.MaxLevels; lvl++ {
+		for _, meta := range version.Levels[lvl] {
+			if !tableOverlapsRange(meta.FirstKey, meta.LastKey, start, end) {
+				continue
+			}
+			reader, ok := e.readers[meta.FileID]
+			if !ok {
+				continue
+			}
+			it := reader.NewIterator()
+			for it.Valid() {
+				ik := it.Key()
+				if len(start) > 0 && bytes.Compare(ik.UserKey, start) < 0 {
+					it.Next()
+					continue
+				}
+				if len(end) > 0 && bytes.Compare(ik.UserKey, end) >= 0 {
+					break
+				}
+				addSST(ik.UserKey, it.Value(), ik.Type == sstable.TypeDeletion)
+				it.Next()
+			}
 		}
 	}
 

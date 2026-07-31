@@ -33,7 +33,7 @@ func TestManifest_AddAndRecover(t *testing.T) {
 	require.NoError(t, m.Close())
 
 	// Recover and verify
-	version, err := Recover(path)
+	version, _, err := Recover(path)
 	require.NoError(t, err)
 
 	total := 0
@@ -67,7 +67,7 @@ func TestManifest_DeleteAndRecover(t *testing.T) {
 	require.NoError(t, m.Apply(VersionEdit{Type: EditDeleteSSTable, Level: 0, FileID: 4}))
 	require.NoError(t, m.Close())
 
-	version, err := Recover(path)
+	version, _, err := Recover(path)
 	require.NoError(t, err)
 	assert.Len(t, version.Levels[0], 3)
 
@@ -131,7 +131,7 @@ func TestManifest_RecoverRejectsTruncatedEdit(t *testing.T) {
 	require.Greater(t, len(data), 1)
 	require.NoError(t, os.WriteFile(path, data[:len(data)-1], 0644))
 
-	_, err = Recover(path)
+	_, _, err = Recover(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "truncated")
 }

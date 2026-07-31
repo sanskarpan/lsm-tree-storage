@@ -219,11 +219,16 @@ func (w *WAL) Sync() error {
 	return nil
 }
 
-// Close flushes and closes the WAL file
+// Close flushes, syncs, and closes the WAL file.
+// Always calls Sync() to ensure any buffered writes reach stable storage
+// before the file handle is released, even when SyncWAL=false.
 func (w *WAL) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if err := w.buf.Flush(); err != nil {
+		return err
+	}
+	if err := w.file.Sync(); err != nil {
 		return err
 	}
 	return w.file.Close()

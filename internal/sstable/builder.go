@@ -165,6 +165,7 @@ func (b *SSTableBuilder) Finish() (SSTableMeta, error) {
 		footer[pos] = 0
 		pos++
 	}
+	binary.LittleEndian.PutUint32(footer[32:], FormatVersion)
 	binary.LittleEndian.PutUint64(footer[40:], MagicNumber)
 	if _, err := b.file.Write(footer); err != nil {
 		return SSTableMeta{}, err

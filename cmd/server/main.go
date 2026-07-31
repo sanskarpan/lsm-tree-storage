@@ -72,7 +72,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           observability.Middleware(logger, metrics, mux),
+		Handler:           observability.Middleware(logger, metrics, handler.RateLimitMiddleware(mux)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -80,6 +80,8 @@ func main() {
 	}
 
 	go func() {
+		certFile := strings.TrimSpace(os.Getenv("TLS_CERT_FILE"))
+		keyFile := strings.TrimSpace(os.Getenv("TLS_KEY_FILE"))
 		logger.Info("server_listening",
 			slog.String("addr", addr),
 			slog.String("data_dir", cfg.DataDir),
@@ -88,9 +90,17 @@ func main() {
 			slog.Bool("cluster_enabled", clusterCfg.Enabled),
 			slog.String("cluster_node_id", node.Status(context.Background()).NodeID),
 			slog.String("cluster_role", string(node.Status(context.Background()).Role)),
+			slog.Bool("tls_enabled", certFile != "" && keyFile != ""),
 		)
-		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
-			logger.Error("server_error", slog.String("addr", addr), slog.Any("error", err))
+		var srvErr error
+		if certFile != "" && keyFile != "" {
+			srvErr = srv.ListenAndServeTLS(certFile, keyFile)
+		} else {
+			log.Println("WARNING: TLS not configured; running in plaintext HTTP mode. Set TLS_CERT_FILE and TLS_KEY_FILE for production.")
+			srvErr = srv.ListenAndServe()
+		}
+		if srvErr != http.ErrServerClosed {
+			logger.Error("server_error", slog.String("addr", addr), slog.Any("error", srvErr))
 		}
 	}()
 

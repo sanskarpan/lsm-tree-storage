@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"io"
 )
 
 // EditType is the discriminator for a VersionEdit record.
@@ -19,6 +20,9 @@ const (
 	EditLogNumber EditType = 3
 	// EditNextFileID records the next file ID to be assigned.
 	EditNextFileID EditType = 4
+	// EditMaxSeqNo records the maximum sequence number seen (persisted for
+	// crash-safe seqNo restore after a clean flush where the WAL is empty).
+	EditMaxSeqNo EditType = 5
 )
 
 // VersionEdit represents a single change to the Version (SSTable level state)
@@ -32,6 +36,7 @@ type VersionEdit struct {
 	Deleted   bool
 	LogNumber uint64
 	NextFileID uint64
+	MaxSeqNo   uint64
 	// SkipOverlapCheck bypasses L1+ overlap validation for compaction outputs
 	// (the old input files are still in the manifest while new outputs are added,
 	// so the transient overlap is expected).  Not persisted to disk.
@@ -42,7 +47,7 @@ type VersionEdit struct {
 var ErrCorruptManifest = errors.New("manifest: corrupt record")
 
 // EncodeVersionEdit encodes a VersionEdit to bytes.
-// Format: [type:1][level:4LE][fileID:8LE][fileSize:8LE][firstKeyLen:4LE][firstKey][lastKeyLen:4LE][lastKey][logNumber:8LE][nextFileID:8LE]
+// Format: [type:1][level:4LE][fileID:8LE][fileSize:8LE][firstKeyLen:4LE][firstKey][lastKeyLen:4LE][lastKey][logNumber:8LE][nextFileID:8LE][maxSeqNo:8LE]
 func EncodeVersionEdit(edit VersionEdit) []byte {
 	buf := &bytes.Buffer{}
 	buf.WriteByte(byte(edit.Type))
@@ -55,6 +60,7 @@ func EncodeVersionEdit(edit VersionEdit) []byte {
 	buf.Write(edit.LastKey)
 	_ = binary.Write(buf, binary.LittleEndian, edit.LogNumber)
 	_ = binary.Write(buf, binary.LittleEndian, edit.NextFileID)
+	_ = binary.Write(buf, binary.LittleEndian, edit.MaxSeqNo)
 	return buf.Bytes()
 }
 
@@ -97,6 +103,16 @@ func DecodeVersionEdit(data []byte) (VersionEdit, error) {
 		return VersionEdit{}, ErrCorruptManifest
 	}
 
+	// MaxSeqNo was added later; old records end here. io.EOF means no field present
+	// (backward compatible). Any other error (e.g. io.ErrUnexpectedEOF) means corruption.
+	var maxSeqNo uint64
+	if err := binary.Read(r, binary.LittleEndian, &maxSeqNo); err != nil {
+		if err != io.EOF {
+			return VersionEdit{}, ErrCorruptManifest
+		}
+		maxSeqNo = 0
+	}
+
 	return VersionEdit{
 		Type:       EditType(editType),
 		Level:      int(level),
@@ -107,5 +123,6 @@ func DecodeVersionEdit(data []byte) (VersionEdit, error) {
 		Deleted:    EditType(editType) == EditDeleteSSTable,
 		LogNumber:  logNumber,
 		NextFileID: nextFileID,
+		MaxSeqNo:   maxSeqNo,
 	}, nil
 }

@@ -383,11 +383,21 @@ func (e *LSMEngine) executeCompaction(inputs []*sstable.SSTableMeta, inputLevel,
 		if committed {
 			return
 		}
+		// Remove output readers and physical files.
 		for _, meta := range outputs {
 			e.unregisterReader(meta.FileID)
 			if meta.FilePath != "" {
 				_ = os.Remove(meta.FilePath)
 			}
+		}
+		// Fix #111: also remove output manifest entries that were already applied
+		// before the failure, so the manifest stays consistent with disk.
+		for i := range outputs {
+			_ = e.manifest.Apply(manifest.VersionEdit{
+				Type:   manifest.EditDeleteSSTable,
+				Level:  outputLevel,
+				FileID: outputs[i].FileID,
+			})
 		}
 	}()
 
@@ -410,13 +420,17 @@ func (e *LSMEngine) executeCompaction(inputs []*sstable.SSTableMeta, inputLevel,
 			return fmt.Errorf("manifest add output %d: %w", outputs[i].FileID, err)
 		}
 	}
+	// Fix #111: treat input-deletion manifest failures as fatal — if we proceed,
+	// the manifest still references the input files but we would delete them from
+	// disk, creating phantom entries that break the next recovery. Return the
+	// error so the defer removes the output manifest entries and files.
 	for _, meta := range inputs {
 		if err := e.manifest.Apply(manifest.VersionEdit{
 			Type:   manifest.EditDeleteSSTable,
 			Level:  meta.Level,
 			FileID: meta.FileID,
 		}); err != nil {
-			log.Printf("warn: manifest delete input %d: %v", meta.FileID, err)
+			return fmt.Errorf("manifest delete input %d: %w", meta.FileID, err)
 		}
 	}
 

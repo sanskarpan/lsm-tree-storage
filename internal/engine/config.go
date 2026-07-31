@@ -23,6 +23,10 @@ type Config struct {
 	MaxValueSize                   int64 // bytes; Put/Write reject larger values
 	CompactionStyle                string // "leveled" | "size-tiered" | "time-window"
 	TimeWindowSize                 time.Duration
+	// WriteStallTimeout is the maximum duration rotateMemTable will wait for the
+	// flush worker to drain an immutable memtable before returning an error.
+	// Defaults to 30s if zero.
+	WriteStallTimeout time.Duration
 }
 
 // DefaultConfig returns a Config with sensible defaults

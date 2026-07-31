@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "crypto";
 import { Elysia, t } from "elysia";
 import { join, relative, resolve } from "path";
 
@@ -118,7 +119,12 @@ function authorizedForBFF(request: Request) {
   const decoded = Buffer.from(header.slice("Basic ".length), "base64").toString(
     "utf8",
   );
-  return decoded === `${bffBasicAuth.username}:${bffBasicAuth.password}`;
+  const expected = `${bffBasicAuth.username}:${bffBasicAuth.password}`;
+  // Hash both values so timingSafeEqual always compares equal-length buffers.
+  // This prevents timing oracle attacks regardless of input length differences.
+  const a = createHash("sha256").update(decoded).digest();
+  const b = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(a, b);
 }
 
 const WS_REJECTED = new WeakSet<object>();
