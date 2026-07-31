@@ -437,14 +437,17 @@ export function initDashboardStore() {
   let socket: WebSocket | null = null;
 
   const connect = () => {
-    socket = new WebSocket(WS_URL);
-    socket.onopen = () => useDashboardStore.setState({ connected: true });
-    socket.onclose = () => {
+    const ws = new WebSocket(WS_URL);
+    socket = ws;
+    ws.onopen = () => useDashboardStore.setState({ connected: true });
+    ws.onclose = () => {
       useDashboardStore.setState({ connected: false });
       retryTimer = window.setTimeout(connect, 1500);
     };
-    socket.onerror = () => socket?.close();
-    socket.onmessage = (message) => {
+    // Close this specific socket instance, not whatever `socket` currently
+    // points to (which may have already been reassigned on reconnect).
+    ws.onerror = () => ws.close();
+    ws.onmessage = (message) => {
       try {
         recordEvent(JSON.parse(message.data) as EngineEvent);
       } catch {
