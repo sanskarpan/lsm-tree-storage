@@ -213,7 +213,9 @@ func (w *WAL) Sync() error {
 	if err := w.file.Sync(); err != nil {
 		return err
 	}
-	w.bus.Publish(events.Event{Type: events.EvtWALSync})
+	if w.bus != nil {
+		w.bus.Publish(events.Event{Type: events.EvtWALSync})
+	}
 	return nil
 }
 
