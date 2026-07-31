@@ -235,7 +235,7 @@ func TestHandler_RejectsUnknownJSONFields(t *testing.T) {
 func TestHandler_RejectsOversizedBodies(t *testing.T) {
 	_, srv := openGatewayTestServerWithToken(t, nil, "secret-token")
 
-	oversized := `{"key":"alpha","value":"` + strings.Repeat("x", maxWriteRequestBytes) + `"}`
+	oversized := `{"key":"alpha","value":"` + strings.Repeat("x", maxSingleWriteRequestBytes) + `"}`
 	req, err := http.NewRequest(http.MethodPost, srv.URL+"/db/put", bytes.NewBufferString(oversized))
 	require.NoError(t, err)
 	req.Header.Set("Origin", srv.URL)

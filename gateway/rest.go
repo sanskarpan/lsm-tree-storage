@@ -25,12 +25,18 @@ import (
 )
 
 const (
-	maxWriteRequestBytes = 8 << 20
 	maxAdminRequestBytes = 1 << 20
 	maxScanLimit         = 5000
 	maxBenchKeys         = 1_000_000
 	maxValueSizeBytes    = 1 << 20
 	maxKeySizeBytes      = 8 << 10
+	// maxSingleWriteRequestBytes caps the body for a single Put/Delete so the
+	// MaxBytesReader rejects oversized payloads before JSON decode, not after.
+	// Sized as key + value + generous JSON framing.
+	maxSingleWriteRequestBytes = maxKeySizeBytes + maxValueSizeBytes + 1024
+	// maxBatchRequestBytes allows up to ~500 entries at max key+value size
+	// plus batch JSON framing overhead.
+	maxBatchRequestBytes = 500*(maxKeySizeBytes+maxValueSizeBytes) + 64*1024
 )
 
 // apiRole represents the minimum access tier required for a route.
@@ -518,7 +524,7 @@ func (h *Handler) handlePut(w http.ResponseWriter, r *http.Request) {
 	if !h.requireRole(w, r, roleReadWrite) {
 		return
 	}
-	if !decodeJSONBody(w, r, &req, maxWriteRequestBytes) {
+	if !decodeJSONBody(w, r, &req, maxSingleWriteRequestBytes) {
 		return
 	}
 	if req.Key == "" {
@@ -866,7 +872,7 @@ func (h *Handler) handleBatch(w http.ResponseWriter, r *http.Request) {
 	if !h.requireRole(w, r, roleReadWrite) {
 		return
 	}
-	if !decodeJSONBody(w, r, &req, maxWriteRequestBytes) {
+	if !decodeJSONBody(w, r, &req, maxBatchRequestBytes) {
 		return
 	}
 	batch := &engine.WriteBatch{}
