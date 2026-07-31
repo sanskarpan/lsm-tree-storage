@@ -234,6 +234,45 @@ func BenchmarkPointRead_WarmCache(b *testing.B) {
 	}
 }
 
+func TestEngine_RejectsValueLargerThanMaxValueSize(t *testing.T) {
+	e := openTestEngine(t, Config{MaxValueSize: 16})
+	defer func() { _ = e.Close() }()
+
+	err := e.Put([]byte("big"), make([]byte, 17))
+	assert.Equal(t, ErrValueTooLarge, err)
+
+	err = e.Put([]byte("ok"), make([]byte, 16))
+	require.NoError(t, err)
+
+	val, err := e.Get([]byte("ok"))
+	require.NoError(t, err)
+	assert.Len(t, val, 16)
+
+	batch := &WriteBatch{}
+	batch.Put([]byte("b-ok"), []byte("x"))
+	batch.Put([]byte("b-big"), make([]byte, 17))
+	err = e.Write(batch)
+	assert.Equal(t, ErrValueTooLarge, err)
+
+	_, err = e.Get([]byte("b-ok"))
+	assert.Equal(t, ErrNotFound, err, "batch must not be partially applied")
+
+	delBatch := &WriteBatch{}
+	delBatch.Delete(make([]byte, 17))
+	require.NoError(t, e.Write(delBatch), "deletes must not be subject to the value cap")
+}
+
+func TestEngine_ZeroMaxValueSizeDefaultsToOneMB(t *testing.T) {
+	e := openTestEngine(t, Config{})
+	defer func() { _ = e.Close() }()
+
+	err := e.Put([]byte("k"), make([]byte, 1024*1024))
+	assert.NoError(t, err)
+
+	err = e.Put([]byte("k2"), make([]byte, 1024*1024+1))
+	assert.Equal(t, ErrValueTooLarge, err)
+}
+
 func BenchmarkPointRead_NoBloom_vs_Bloom(b *testing.B) {
 	dir := b.TempDir()
 	e, err := Open(Config{

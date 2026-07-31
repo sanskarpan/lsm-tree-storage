@@ -22,9 +22,13 @@ import (
 	"lsm-engine/internal/sstable"
 	"lsm-engine/internal/wal"
 )
-
 // ErrNotFound is returned by Get when the requested key does not exist or has been deleted.
+
 var ErrNotFound = errors.New("engine: key not found")
+
+// ErrValueTooLarge is returned by Put/Write when a value exceeds
+// Config.MaxValueSize.
+var ErrValueTooLarge = errors.New("engine: value too large")
 
 type immutableMemtable struct {
 	table     *memtable.MemTable
@@ -167,6 +171,9 @@ func Open(cfg Config) (*LSMEngine, error) {
 	}
 	if cfg.Level0StopWritesTrigger == 0 {
 		cfg.Level0StopWritesTrigger = 12
+	}
+	if cfg.MaxValueSize <= 0 {
+		cfg.MaxValueSize = 1024 * 1024
 	}
 
 	if err := os.MkdirAll(cfg.DataDir, 0755); err != nil {
@@ -450,6 +457,9 @@ func (e *LSMEngine) Write(batch *WriteBatch) error {
 	defer e.mu.Unlock()
 	walEntries := make([]wal.WALEntry, 0, len(batch.entries))
 	for _, entry := range batch.entries {
+		if !entry.Delete && int64(len(entry.Value)) > e.cfg.MaxValueSize {
+			return ErrValueTooLarge
+		}
 		seqNo := atomic.AddUint64(&e.seqNo, 1)
 		walEntry := wal.WALEntry{
 			Key:   entry.Key,
@@ -494,6 +504,10 @@ func (e *LSMEngine) Put(key, value []byte) error {
 }
 
 func (e *LSMEngine) putLocked(key, value []byte) error {
+	if int64(len(value)) > e.cfg.MaxValueSize {
+		return ErrValueTooLarge
+	}
+
 	seqNo := atomic.AddUint64(&e.seqNo, 1)
 
 	// 1. WAL before MemTable (durability)

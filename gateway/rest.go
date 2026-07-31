@@ -149,6 +149,10 @@ func (h *Handler) writeNodeError(w http.ResponseWriter, err error) bool {
 		})
 		return true
 	}
+	if errors.Is(err, engine.ErrValueTooLarge) {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return true
+	}
 	return false
 }
 
@@ -397,6 +401,10 @@ func (h *Handler) handlePut(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.Key) > maxKeySizeBytes {
 		http.Error(w, fmt.Sprintf("key too large (max %d bytes)", maxKeySizeBytes), http.StatusBadRequest)
+		return
+	}
+	if len(req.Value) > maxValueSizeBytes {
+		http.Error(w, fmt.Sprintf("value too large (max %d bytes)", maxValueSizeBytes), http.StatusBadRequest)
 		return
 	}
 	if err := h.node.Put(h.requestContext(r), []byte(req.Key), []byte(req.Value)); err != nil {
@@ -743,6 +751,10 @@ func (h *Handler) handleBatch(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(e.Key) > maxKeySizeBytes {
 			http.Error(w, fmt.Sprintf("entries[].key too large (max %d bytes)", maxKeySizeBytes), http.StatusBadRequest)
+			return
+		}
+		if !e.Delete && len(e.Value) > maxValueSizeBytes {
+			http.Error(w, fmt.Sprintf("entries[].value too large (max %d bytes)", maxValueSizeBytes), http.StatusBadRequest)
 			return
 		}
 		if e.Delete {
