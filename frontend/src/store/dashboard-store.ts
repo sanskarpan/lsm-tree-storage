@@ -137,6 +137,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     })),
 
   refreshSnapshot: async () => {
+    if (snapshotPending) return;
+    snapshotPending = true;
     try {
       const [openState, levelState, walState, memState, compactionState, scenarioState] =
         await Promise.all([
@@ -180,6 +182,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       set({
         error: err instanceof Error ? err.message : String(err),
       });
+    } finally {
+      snapshotPending = false;
     }
   },
 
@@ -421,6 +425,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
 
 let initStarted = false;
 let cleanupInit: (() => void) | null = null;
+let snapshotPending = false;
 
 export function initDashboardStore() {
   if (initStarted) return;
