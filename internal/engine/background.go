@@ -242,6 +242,8 @@ func (e *LSMEngine) executeCompaction(inputs []*sstable.SSTableMeta, inputLevel,
 	h := &mergeHeap{}
 	heap.Init(h)
 
+	// Hold readersMu.RLock for the entire merge loop so that unregisterReader
+	// cannot close an input SSTable whose iterator is still live in the heap.
 	e.readersMu.RLock()
 	for idx, meta := range inputs {
 		reader, ok := e.readers[meta.FileID]
@@ -260,7 +262,6 @@ func (e *LSMEngine) executeCompaction(inputs []*sstable.SSTableMeta, inputLevel,
 			})
 		}
 	}
-	e.readersMu.RUnlock()
 
 	var outputs []sstable.SSTableMeta
 	var builder *sstable.SSTableBuilder
@@ -342,6 +343,10 @@ func (e *LSMEngine) executeCompaction(inputs []*sstable.SSTableMeta, inputLevel,
 			heap.Push(h, top)
 		}
 	}
+
+	// Merge loop complete; iterators are no longer needed. Release the read lock
+	// so that registerReader (called below for outputs) can take the write lock.
+	e.readersMu.RUnlock()
 
 	// Finalize last output file
 	if builder != nil {
