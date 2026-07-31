@@ -151,8 +151,9 @@ func (n *ShardedNode) Shards(ctx context.Context) []ShardStatus {
 }
 
 func (n *ShardedNode) LeaderAddress(ctx context.Context) string {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
+	// Call Shards (which takes its own RLock) without holding our RLock first
+	// to avoid a deadlock: RLock → Shards RLock causes deadlock when a writer
+	// is queued between the two acquisitions.
 	shards := n.Shards(ctx)
 	if len(shards) == 0 {
 		return ""
