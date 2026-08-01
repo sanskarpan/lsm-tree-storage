@@ -1,12 +1,14 @@
+import * as React from "react";
 import { useDashboardStore } from "../../store/dashboard-store";
 import { TopBar } from "./TopBar";
-import { WriteWorkbench } from "../../features/write-workbench/WriteWorkbench";
-import { LevelMatrix } from "../../features/level-matrix/LevelMatrix";
-import { BloomTelemetry } from "../../features/bloom-telemetry/BloomTelemetry";
-import { ReadInspector } from "../../features/read-inspector/ReadInspector";
-import { CompactionStudio } from "../../features/compaction-studio/CompactionStudio";
-import { AmplificationDeck } from "../../features/amplification-deck/AmplificationDeck";
-import { ScenarioLab } from "../../features/scenario-lab/ScenarioLab";
+
+const WriteWorkbench   = React.lazy(() => import("../../features/write-workbench/WriteWorkbench").then(m => ({ default: m.WriteWorkbench })));
+const LevelMatrix      = React.lazy(() => import("../../features/level-matrix/LevelMatrix").then(m => ({ default: m.LevelMatrix })));
+const BloomTelemetry   = React.lazy(() => import("../../features/bloom-telemetry/BloomTelemetry").then(m => ({ default: m.BloomTelemetry })));
+const ReadInspector    = React.lazy(() => import("../../features/read-inspector/ReadInspector").then(m => ({ default: m.ReadInspector })));
+const CompactionStudio = React.lazy(() => import("../../features/compaction-studio/CompactionStudio").then(m => ({ default: m.CompactionStudio })));
+const AmplificationDeck = React.lazy(() => import("../../features/amplification-deck/AmplificationDeck").then(m => ({ default: m.AmplificationDeck })));
+const ScenarioLab      = React.lazy(() => import("../../features/scenario-lab/ScenarioLab").then(m => ({ default: m.ScenarioLab })));
 
 export function AppShell() {
   const error = useDashboardStore((s) => s.error);
@@ -23,13 +25,15 @@ export function AppShell() {
         </div>
       )}
       <main className="app-grid">
-        <div className="col-4"><WriteWorkbench /></div>
-        <div className="col-5"><LevelMatrix /></div>
-        <div className="col-3"><BloomTelemetry /></div>
-        <div className="col-4"><ReadInspector /></div>
-        <div className="col-4"><CompactionStudio /></div>
-        <div className="col-4"><AmplificationDeck /></div>
-        <div className="col-12"><ScenarioLab /></div>
+        <React.Suspense fallback={null}>
+          <div className="col-4"><WriteWorkbench /></div>
+          <div className="col-5"><LevelMatrix /></div>
+          <div className="col-3"><BloomTelemetry /></div>
+          <div className="col-4"><ReadInspector /></div>
+          <div className="col-4"><CompactionStudio /></div>
+          <div className="col-4"><AmplificationDeck /></div>
+          <div className="col-12"><ScenarioLab /></div>
+        </React.Suspense>
       </main>
     </div>
   );

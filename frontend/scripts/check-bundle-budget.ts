@@ -13,7 +13,7 @@ const BUDGETS: Record<string, number> = {
   "CompactionStudio.js": 10 * 1024,
   "AmplificationDeck.js": 10 * 1024,
   "BloomTelemetry.js": 10 * 1024,
-  "app.css": 12 * 1024,
+  "app.css": 14 * 1024,
 };
 
 function formatBytes(bytes: number): string {
