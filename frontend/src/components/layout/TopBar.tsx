@@ -1,176 +1,81 @@
-import * as React from "react";
-import { Moon, Sun, Rows3, Rows4 } from "lucide-react";
+import { useDashboardStore } from "../../store/dashboard-store";
 
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import type { EngineConfig, EngineStats, RuntimeState } from "../../types";
-import { useTheme } from "../../hooks/useTheme";
+const formatNum = (n: number) =>
+  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M`
+  : n >= 1_000   ? `${(n / 1_000).toFixed(1)}k`
+  : String(n);
 
-type TopBarProps = {
-  connected: boolean;
-  runtime: RuntimeState | null;
-  stats: EngineStats | null;
-  config: EngineConfig | null;
-  sessionWrites: number;
-  sessionFlushes: number;
-  sessionCompactions: number;
-};
+export function TopBar() {
+  const stats              = useDashboardStore((s) => s.stats);
+  const connected          = useDashboardStore((s) => s.connected);
+  const runtime            = useDashboardStore((s) => s.runtime);
+  const config             = useDashboardStore((s) => s.config);
+  const sessionWrites      = useDashboardStore((s) => s.sessionWrites);
+  const sessionFlushes     = useDashboardStore((s) => s.sessionFlushes);
+  const sessionCompactions = useDashboardStore((s) => s.sessionCompactions);
 
-function compactNumber(n: number | undefined): string {
-  if (n == null) return "—";
-  if (n < 1000) return n.toString();
-  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}K`;
-  return `${(n / 1_000_000).toFixed(2)}M`;
-}
+  const compactionStyle = runtime?.CompactionStyle ?? config?.CompactionStyle ?? "leveled";
 
-function pct(n: number | null | undefined): string {
-  if (n == null) return "—";
-  return `${Math.round(n * 100)}%`;
-}
-
-export function TopBar({
-  connected,
-  runtime,
-  stats,
-  config,
-  sessionWrites,
-  sessionFlushes,
-  sessionCompactions,
-}: TopBarProps) {
-  const { theme, density, setTheme, setDensity } = useTheme();
+  const kpis = [
+    { label: "Seq No",      value: stats?.seq_no        != null ? String(stats.seq_no) : "—"                     },
+    { label: "Writes",      value: sessionWrites         != null ? formatNum(sessionWrites) : "—"                 },
+    { label: "Flushes",     value: sessionFlushes        != null ? String(sessionFlushes)   : "—"                 },
+    { label: "Compactions", value: sessionCompactions    != null ? String(sessionCompactions) : "—"               },
+    { label: "Cache Hit",   value: stats?.cache_hit_rate != null ? `${(stats.cache_hit_rate * 100).toFixed(0)}%` : "—" },
+    { label: "Strategy",    value: compactionStyle                                                                },
+  ];
 
   return (
-    <header className="mx-auto flex w-full max-w-[1440px] items-center justify-between gap-4 px-6 py-3">
-      <div className="flex items-center gap-3">
-        <p className="font-mono text-xs uppercase tracking-[0.18em] text-[var(--accent)]">
-          LSM Control Room
-        </p>
-        <span className="text-xs text-[var(--fg-subtle)]">·</span>
-        <p className="text-sm text-[var(--fg-muted)]">
-          Storage telemetry for the LSM engine running on this node.
-        </p>
+    <header style={{
+      position: "sticky", top: 0, zIndex: 100,
+      background: "var(--color-surface)",
+      borderBottom: "1px solid var(--color-border)",
+      display: "flex", alignItems: "center",
+      padding: "0 16px", height: "52px", gap: "20px",
+      backdropFilter: "blur(8px)",
+    }}>
+      {/* Brand */}
+      <div style={{ display: "flex", flexDirection: "column", minWidth: 160, flexShrink: 0 }}>
+        <span style={{
+          fontFamily: "var(--font-display)", fontWeight: 700,
+          fontSize: "16px", letterSpacing: "0.18em", textTransform: "uppercase",
+          color: "var(--color-signal)", lineHeight: 1,
+        }}>
+          LSM ENGINE
+        </span>
+        <span style={{
+          fontSize: "9px", letterSpacing: "0.15em", textTransform: "uppercase",
+          color: "var(--color-text-muted)", marginTop: "2px",
+        }}>
+          Control Room<span className="animate-blink" style={{ color: "var(--color-signal)", marginLeft: 2 }}>█</span>
+        </span>
       </div>
 
-      <div className="flex items-center gap-4">
-        <dl className="hidden items-center gap-4 text-xs text-[var(--fg-muted)] md:flex">
-          <div className="flex flex-col">
-            <dt className="font-mono uppercase tracking-wider text-[10px]">SeqNo</dt>
-            <dd className="font-mono text-sm text-[var(--fg)]">
-              {compactNumber(stats?.seq_no)}
-            </dd>
-          </div>
-          <div className="flex flex-col">
-            <dt className="font-mono uppercase tracking-wider text-[10px]">Writes</dt>
-            <dd className="font-mono text-sm text-[var(--fg)]">
-              {compactNumber(sessionWrites)}
-            </dd>
-          </div>
-          <div className="flex flex-col">
-            <dt className="font-mono uppercase tracking-wider text-[10px]">Flushes</dt>
-            <dd className="font-mono text-sm text-[var(--fg)]">
-              {compactNumber(sessionFlushes)}
-            </dd>
-          </div>
-          <div className="flex flex-col">
-            <dt className="font-mono uppercase tracking-wider text-[10px]">Compactions</dt>
-            <dd className="font-mono text-sm text-[var(--fg)]">
-              {compactNumber(sessionCompactions)}
-            </dd>
-          </div>
-          <div className="flex flex-col">
-            <dt className="font-mono uppercase tracking-wider text-[10px]">Cache</dt>
-            <dd className="font-mono text-sm text-[var(--fg)]">
-              {pct(stats?.cache_hit_rate)}
-            </dd>
-          </div>
-          <div className="flex flex-col">
-            <dt className="font-mono uppercase tracking-wider text-[10px]">Style</dt>
-            <dd className="font-mono text-sm text-[var(--fg)]">
-              {runtime?.CompactionStyle ?? config?.CompactionStyle ?? "leveled"}
-            </dd>
-          </div>
-        </dl>
+      {/* Divider */}
+      <div style={{ width: 1, height: 28, background: "var(--color-border)" }} />
 
-        <div
-          className={
-            "inline-flex items-center gap-2 rounded-md border px-2.5 py-1 text-xs " +
-            (connected
-              ? "border-[var(--success)]/40 bg-[var(--success)]/10 text-[var(--fg)]"
-              : "border-[var(--border)] bg-[var(--muted)] text-[var(--fg-muted)]")
-          }
-        >
-          <span
-            className={
-              "h-2 w-2 rounded-full " +
-              (connected ? "bg-[var(--success)]" : "bg-[var(--fg-subtle)]")
-            }
-            aria-hidden="true"
-          />
+      {/* KPIs */}
+      <div style={{ display: "flex", gap: "20px", flex: 1, overflow: "auto" }}>
+        {kpis.map(kpi => (
+          <div key={kpi.label} style={{ display: "flex", flexDirection: "column", minWidth: 56 }}>
+            <span className="kv-label">{kpi.label}</span>
+            <span style={{
+              fontFamily: "var(--font-mono)", fontSize: "15px", fontWeight: 500,
+              color: "var(--color-text)", lineHeight: 1.1, marginTop: "1px",
+              whiteSpace: "nowrap",
+            }}>{kpi.value}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Connection status */}
+      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+        <span className={`conn-dot ${connected ? "live" : "connecting"}`} />
+        <span style={{ fontSize: "10px", fontFamily: "var(--font-display)", fontWeight: 600,
+          letterSpacing: "0.1em", textTransform: "uppercase",
+          color: connected ? "var(--color-signal)" : "var(--color-amber)" }}>
           {connected ? "Live" : "Reconnecting"}
-        </div>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Theme">
-              {theme === "dark" ? (
-                <Moon className="h-4 w-4" />
-              ) : (
-                <Sun className="h-4 w-4" />
-              )}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Theme</DropdownMenuLabel>
-            <DropdownMenuRadioGroup
-              value={theme}
-              onValueChange={(value) => setTheme(value as "light" | "dark")}
-            >
-              <DropdownMenuRadioItem value="light">
-                <Sun className="h-3.5 w-3.5" /> Light
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="dark">
-                <Moon className="h-3.5 w-3.5" /> Dark
-              </DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Density">
-              {density === "compact" ? (
-                <Rows3 className="h-4 w-4" />
-              ) : (
-                <Rows4 className="h-4 w-4" />
-              )}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Density</DropdownMenuLabel>
-            <DropdownMenuRadioGroup
-              value={density}
-              onValueChange={(value) =>
-                setDensity(value as "comfortable" | "compact")
-              }
-            >
-              <DropdownMenuRadioItem value="comfortable">
-                <Rows4 className="h-3.5 w-3.5" /> Comfortable
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="compact">
-                <Rows3 className="h-3.5 w-3.5" /> Compact
-              </DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        </span>
       </div>
     </header>
   );

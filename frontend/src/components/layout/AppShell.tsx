@@ -1,77 +1,36 @@
-import * as React from "react";
+import { useDashboardStore } from "../../store/dashboard-store";
+import { TopBar } from "./TopBar";
+import { WriteWorkbench } from "../../features/write-workbench/WriteWorkbench";
+import { LevelMatrix } from "../../features/level-matrix/LevelMatrix";
+import { BloomTelemetry } from "../../features/bloom-telemetry/BloomTelemetry";
+import { ReadInspector } from "../../features/read-inspector/ReadInspector";
+import { CompactionStudio } from "../../features/compaction-studio/CompactionStudio";
+import { AmplificationDeck } from "../../features/amplification-deck/AmplificationDeck";
+import { ScenarioLab } from "../../features/scenario-lab/ScenarioLab";
 
-import { cn } from "@/lib/utils";
-
-type GridColumn =
-  | "span 3"
-  | "span 4"
-  | "span 5"
-  | "span 6"
-  | "span 7"
-  | "span 8"
-  | "span 9"
-  | "span 12"
-  | "full";
-
-const columnToClass: Record<GridColumn, string> = {
-  "span 3": "lg:col-span-3",
-  "span 4": "lg:col-span-4",
-  "span 5": "lg:col-span-5",
-  "span 6": "lg:col-span-6",
-  "span 7": "lg:col-span-7",
-  "span 8": "lg:col-span-8",
-  "span 9": "lg:col-span-9",
-  "span 12": "lg:col-span-12",
-  full: "col-span-full",
-};
-
-export interface AppShellProps {
-  topBar?: React.ReactNode;
-  errorBanner?: React.ReactNode;
-  children: React.ReactNode;
-  className?: string;
-}
-
-function AppShellRoot({
-  topBar,
-  errorBanner,
-  children,
-  className,
-}: AppShellProps) {
+export function AppShell() {
+  const error = useDashboardStore((s) => s.error);
   return (
-    <div className={cn("relative min-h-screen bg-[var(--bg)]", className)}>
-      {topBar ? (
-        <div className="border-b border-[var(--border)] bg-[var(--bg-elevated)]">
-          {topBar}
+    <div style={{ minHeight: "100vh", background: "var(--color-bg)", position: "relative", zIndex: 1 }}>
+      <TopBar />
+      {error && (
+        <div style={{
+          background: "rgba(255,60,94,0.1)", border: "1px solid rgba(255,60,94,0.3)",
+          color: "var(--color-crimson)", padding: "8px 16px", fontSize: "11px",
+          fontFamily: "var(--font-mono)", letterSpacing: "0.05em",
+        }}>
+          ⚠ ENGINE ERROR: {error}
         </div>
-      ) : null}
-      {errorBanner ? <div className="px-6 pt-4">{errorBanner}</div> : null}
-      <main className="mx-auto w-full max-w-[1440px] px-6 py-6">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">{children}</div>
+      )}
+      <main className="app-grid">
+        <div className="col-4"><WriteWorkbench /></div>
+        <div className="col-5"><LevelMatrix /></div>
+        <div className="col-3"><BloomTelemetry /></div>
+        <div className="col-4"><ReadInspector /></div>
+        <div className="col-4"><CompactionStudio /></div>
+        <div className="col-4"><AmplificationDeck /></div>
+        <div className="col-12"><ScenarioLab /></div>
       </main>
     </div>
   );
 }
-
-export interface AppShellPanelProps {
-  gridColumn?: GridColumn;
-  children: React.ReactNode;
-  className?: string;
-}
-
-function AppShellPanel({
-  gridColumn = "span 4",
-  children,
-  className,
-}: AppShellPanelProps) {
-  return (
-    <div className={cn(columnToClass[gridColumn], "min-h-[240px]", className)}>
-      {children}
-    </div>
-  );
-}
-
-export const AppShell = Object.assign(AppShellRoot, {
-  Panel: AppShellPanel,
-});
-

@@ -1,153 +1,128 @@
 import * as React from "react";
-import { Search } from "lucide-react";
+import { useDashboardStore } from "../../store/dashboard-store";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
-import type { ReadTraceReport } from "../../types";
+function stepColor(step: string): string {
+  const s = step.toLowerCase();
+  if (s.includes("memtable") && s.includes("hit")) return "var(--color-signal)";
+  if (s.includes("bloom")) return "var(--color-cyan)";
+  if (s.includes("sstable") || s.includes("sst")) return "var(--color-amber)";
+  if (s.includes("miss") || s.includes("not found")) return "var(--color-text-dim)";
+  return "var(--color-text-muted)";
+}
 
-type ReadInspectorProps = {
-  pending: boolean;
-  trace: ReadTraceReport | null;
-  onInspect: (key: string) => Promise<void>;
-};
+export function ReadInspector() {
+  const trace     = useDashboardStore((s) => s.readTrace);
+  const pending   = useDashboardStore((s) => s.queryPending);
+  const onInspect = useDashboardStore((s) => s.runReadTrace);
 
-export function ReadInspector({ pending, trace, onInspect }: ReadInspectorProps) {
   const [key, setKey] = React.useState("live-a");
 
-  const status: "found" | "missing" | "idle" = trace
-    ? trace.found
-      ? "found"
-      : "missing"
-    : "idle";
-
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Query inspector</CardTitle>
-        <CardDescription>Read path</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-5">
+    <div className="panel" style={{ display: "flex", flexDirection: "column" }}>
+      <div className="panel-header">
+        <div>
+          <div className="panel-title">Query Inspector</div>
+          <div className="panel-subtitle">Read path</div>
+        </div>
+      </div>
+      <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+        {/* Key trace form */}
         <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (key) void onInspect(key);
-          }}
-          className="flex flex-col gap-2"
+          onSubmit={(e) => { e.preventDefault(); if (key) void onInspect(key); }}
+          style={{ display: "flex", gap: 6, alignItems: "flex-end" }}
         >
-          <Label htmlFor="ri-key">Trace a key</Label>
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--fg-muted)]" />
-              <Input
-                id="ri-key"
-                value={key}
-                onChange={(event) => setKey(event.target.value)}
-                placeholder="key"
-                className="pl-8"
-              />
-            </div>
-            <Button type="submit" disabled={pending || !key}>
-              {pending ? "Tracing..." : "Trace read"}
-            </Button>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
+            <label className="kv-label" htmlFor="ri-key">Trace a key</label>
+            <input
+              id="ri-key"
+              className="term-input"
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+              placeholder="key"
+            />
           </div>
+          <button type="submit" className="term-btn primary" disabled={pending || !key}>
+            {pending ? "Tracing..." : "Trace Read"}
+          </button>
         </form>
 
-        <div className="flex items-center justify-between gap-3 rounded-md border border-[var(--border)] p-4">
-          <div className="flex flex-col gap-1">
-            <p className="text-xs uppercase tracking-wider text-[var(--fg-muted)]">
-              Result
-            </p>
+        {/* Result box */}
+        <div className="stat-tile" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div className="stat-label">Result</div>
             {trace ? (
-              <Badge
-                variant={trace.found ? "success" : "danger"}
-                className="text-sm"
-              >
+              <span className={`sig-badge ${trace.found ? "signal" : "danger"}`} style={{ marginTop: 4, display: "inline-flex" }}>
                 {trace.found ? "Found" : "Missing"}
-              </Badge>
+              </span>
             ) : (
-              <Badge variant="secondary" className="text-sm">
+              <span className="sig-badge muted" style={{ marginTop: 4, display: "inline-flex" }}>
                 Awaiting query
-              </Badge>
+              </span>
             )}
           </div>
-          <div className="flex flex-col items-end gap-1 text-right">
-            <span className="text-xs uppercase tracking-wider text-[var(--fg-muted)]">
-              Status
-            </span>
-            <span className="font-mono text-2xl font-semibold">
-              {trace?.status ?? 0}
-            </span>
-          </div>
+          {trace && (
+            <div style={{ textAlign: "right" }}>
+              <div className="stat-label">Status</div>
+              <div className="stat-value" style={{ fontSize: 22 }}>{trace.status}</div>
+            </div>
+          )}
         </div>
 
-        {pending && !trace ? (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {[...Array(4)].map((_, index) => (
-              <Skeleton key={index} className="h-16" />
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <MetricTile label="Bloom checks" value={trace?.bloomChecks ?? 0} />
-            <MetricTile label="Bloom misses" value={trace?.bloomMisses ?? 0} />
-            <MetricTile label="Memtable hits" value={trace?.memtableHits ?? 0} />
-            <MetricTile label="SSTable hits" value={trace?.sstableHits ?? 0} />
+        {/* Metrics grid */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+          {[
+            { label: "Bloom Checks", value: trace?.bloomChecks ?? 0, color: "var(--color-cyan)" },
+            { label: "Bloom Misses", value: trace?.bloomMisses ?? 0, color: "var(--color-amber)" },
+            { label: "Memtable Hits", value: trace?.memtableHits ?? 0, color: "var(--color-signal)" },
+            { label: "SSTable Hits", value: trace?.sstableHits ?? 0, color: "var(--color-text-muted)" },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="stat-tile">
+              <div className="stat-label">{label}</div>
+              <div className="stat-value sm" style={{ color }}>{value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Captured value */}
+        {trace?.value && (
+          <div style={{
+            background: "var(--color-surface-2)", border: "1px solid var(--color-border-dim)",
+            borderRadius: 2, padding: "8px 10px",
+          }}>
+            <div className="kv-label" style={{ marginBottom: 3 }}>Captured Value</div>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--color-text)", wordBreak: "break-all" }}>
+              {trace.value}
+            </span>
           </div>
         )}
 
-        {trace?.value ? (
-          <div className="rounded-md border border-[var(--border)] bg-[var(--bg-sunken)] p-3">
-            <p className="text-xs uppercase tracking-wider text-[var(--fg-muted)]">
-              Captured value
-            </p>
-            <p className="mt-1 break-all font-mono text-sm">{trace.value}</p>
-          </div>
-        ) : null}
-
-        <div className="flex flex-col gap-2">
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--fg-muted)]">
-            Captured execution steps
-          </h4>
-          {trace?.steps.length ? (
-            <ol className="flex flex-col gap-1.5 text-sm">
-              {trace.steps.map((step, index) => (
-                <li
-                  key={`${step}-${index}`}
-                  className="flex gap-2 rounded-md border border-[var(--border)] p-2"
-                >
-                  <span className="font-mono text-xs text-[var(--fg-muted)]">
+        {/* Execution steps */}
+        <div>
+          <div className="kv-label" style={{ marginBottom: 6 }}>Execution Steps</div>
+          {(trace?.steps.length ?? 0) > 0 ? (
+            <ol style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+              {trace!.steps.map((step, index) => (
+                <li key={`${step}-${index}`} style={{
+                  display: "flex", gap: 8, alignItems: "flex-start",
+                  background: "var(--color-surface-2)", border: "1px solid var(--color-border-dim)",
+                  borderRadius: 2, padding: "5px 8px",
+                }}>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--color-text-dim)", minWidth: 18, paddingTop: 1 }}>
                     {String(index + 1).padStart(2, "0")}
                   </span>
-                  <span>{step}</span>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: stepColor(step) }}>
+                    {step}
+                  </span>
                 </li>
               ))}
             </ol>
           ) : (
-            <p className="text-sm text-[var(--fg-subtle)]">
-              No read trace captured yet.
-            </p>
+            <p style={{ fontSize: 11, color: "var(--color-text-dim)" }}>No read trace captured yet.</p>
           )}
         </div>
-      </CardContent>
-    </Card>
-  );
-}
 
-function MetricTile({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="flex flex-col gap-1 rounded-md border border-[var(--border)] p-3">
-      <span className="text-xs text-[var(--fg-muted)]">{label}</span>
-      <strong className="font-mono text-xl">{value}</strong>
+      </div>
     </div>
   );
 }

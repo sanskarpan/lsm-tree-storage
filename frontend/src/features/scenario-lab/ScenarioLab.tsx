@@ -1,298 +1,216 @@
 import * as React from "react";
-import { Play, Power, Zap } from "lucide-react";
+import { useDashboardStore } from "../../store/dashboard-store";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import type {
-  BenchRequest,
-  BenchResult,
-  EngineConfig,
-  FeedLine,
-  RuntimeState,
-  ScenarioInfo,
-} from "../../types";
-
-type ScenarioLabProps = {
-  runtime: RuntimeState | null;
-  config: EngineConfig | null;
-  scenarios: ScenarioInfo[];
-  benchmarkResult: BenchResult | null;
-  closeMessage: string | null;
-  opsFeed: FeedLine[];
-  onScenarioRun: (name: string) => Promise<void>;
-  onBenchRun: (request: BenchRequest) => Promise<void>;
-  onCloseAttempt: () => Promise<void>;
-};
-
-function toneToVariant(tone: FeedLine["tone"]) {
+function feedTagFromTone(tone: string): string {
   switch (tone) {
-    case "good":
-      return "success" as const;
-    case "warn":
-      return "warning" as const;
-    case "danger":
-      return "danger" as const;
-    case "accent":
-      return "info" as const;
-    default:
-      return "secondary" as const;
+    case "good":   return "feed-tag put";
+    case "warn":   return "feed-tag compact";
+    case "danger": return "feed-tag del";
+    case "accent": return "feed-tag sync";
+    default:       return "feed-tag sync";
   }
 }
 
-export function ScenarioLab({
-  runtime,
-  config,
-  scenarios,
-  benchmarkResult,
-  closeMessage,
-  opsFeed,
-  onScenarioRun,
-  onBenchRun,
-  onCloseAttempt,
-}: ScenarioLabProps) {
-  const [scenarioName, setScenarioName] = React.useState<string>("");
-  const [benchType, setBenchType] = React.useState("sequential_write");
-  const [benchKeys, setBenchKeys] = React.useState(2000);
+export function ScenarioLab() {
+  const runtime         = useDashboardStore((s) => s.runtime);
+  const config          = useDashboardStore((s) => s.config);
+  const scenarios       = useDashboardStore((s) => s.scenarios);
+  const benchmarkResult = useDashboardStore((s) => s.benchmarkResult);
+  const closeMessage    = useDashboardStore((s) => s.closeMessage);
+  const opsFeed         = useDashboardStore((s) => s.opsFeed);
+  const onScenarioRun   = useDashboardStore((s) => s.handleScenarioRun);
+  const onBenchRun      = useDashboardStore((s) => s.handleBenchRun);
+  const onCloseAttempt  = useDashboardStore((s) => s.handleCloseAttempt);
+
+  const [scenarioName, setScenarioName]     = React.useState("");
+  const [benchType, setBenchType]           = React.useState("sequential_write");
+  const [benchKeys, setBenchKeys]           = React.useState(2000);
   const [benchValueSize, setBenchValueSize] = React.useState(128);
-  const [closeDialogOpen, setCloseDialogOpen] = React.useState(false);
+  const [showCloseConfirm, setShowCloseConfirm] = React.useState(false);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Operations lab</CardTitle>
-        <CardDescription>Scenarios &amp; benchmarks</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-5">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div className="flex flex-col gap-3 rounded-md border border-[var(--border)] p-4">
-            <div className="flex flex-col gap-1">
-              <p className="text-xs uppercase tracking-wider text-[var(--fg-muted)]">
-                Runtime
-              </p>
-              <p className="font-mono text-sm">
+    <div className="panel" style={{ display: "flex", flexDirection: "column" }}>
+      <div className="panel-header">
+        <div>
+          <div className="panel-title">Operations Lab</div>
+          <div className="panel-subtitle">Scenarios &amp; benchmarks</div>
+        </div>
+      </div>
+      <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+        {/* 3-column grid */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+
+          {/* Runtime info */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div className="kv-label" style={{ marginBottom: 2 }}>Runtime</div>
+            <div className="stat-tile">
+              <div className="stat-label">Data Dir</div>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-text)", marginTop: 2, wordBreak: "break-all" }}>
                 {runtime?.DataDir ?? "unavailable"}
-              </p>
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <Badge variant="info">
-                WAL #{runtime?.ActiveLogNumber ?? "?"}
-              </Badge>
-              <Badge variant={runtime?.SyncWAL ? "success" : "secondary"}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <span className="sig-badge info">WAL #{runtime?.ActiveLogNumber ?? "?"}</span>
+              <span className={`sig-badge ${runtime?.SyncWAL ? "signal" : "muted"}`}>
                 sync {runtime?.SyncWAL ? "on" : "off"}
-              </Badge>
-              <span className="text-[var(--fg-muted)]">
-                target {(config?.MemTableSize ?? 0).toLocaleString()} B
               </span>
+            </div>
+            <div className="stat-tile">
+              <div className="stat-label">Memtable Target</div>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-text)", marginTop: 2 }}>
+                {(config?.MemTableSize ?? 0).toLocaleString()} B
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 rounded-md border border-[var(--border)] p-4">
-            <p className="text-xs uppercase tracking-wider text-[var(--fg-muted)]">
-              Benchmark
-            </p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <div className="flex flex-col gap-1">
-                <Label htmlFor="bench-type">Workload</Label>
-                <Input
-                  id="bench-type"
-                  value={benchType}
-                  onChange={(event) => setBenchType(event.target.value)}
-                  placeholder="workload type"
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <Label htmlFor="bench-keys">Keys</Label>
-                <Input
+          {/* Benchmark form */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div className="kv-label" style={{ marginBottom: 2 }}>Benchmark</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <label className="kv-label" htmlFor="bench-type">Workload</label>
+              <input
+                id="bench-type"
+                className="term-input"
+                value={benchType}
+                onChange={(e) => setBenchType(e.target.value)}
+                placeholder="workload type"
+              />
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
+                <label className="kv-label" htmlFor="bench-keys">Keys</label>
+                <input
                   id="bench-keys"
+                  className="term-input"
                   type="number"
                   min={1}
                   value={benchKeys}
-                  onChange={(event) =>
-                    setBenchKeys(Number(event.target.value) || 0)
-                  }
+                  onChange={(e) => setBenchKeys(Number(e.target.value) || 0)}
                 />
               </div>
-              <div className="flex flex-col gap-1">
-                <Label htmlFor="bench-vsize">Value bytes</Label>
-                <Input
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
+                <label className="kv-label" htmlFor="bench-vsize">Value Bytes</label>
+                <input
                   id="bench-vsize"
+                  className="term-input"
                   type="number"
                   min={1}
                   value={benchValueSize}
-                  onChange={(event) =>
-                    setBenchValueSize(Number(event.target.value) || 0)
-                  }
+                  onChange={(e) => setBenchValueSize(Number(e.target.value) || 0)}
                 />
               </div>
             </div>
-            <div className="flex items-center justify-between gap-3">
-              <Button
-                size="sm"
-                onClick={() =>
-                  void onBenchRun({
-                    type: benchType,
-                    num_keys: benchKeys,
-                    value_size: benchValueSize,
-                  })
-                }
-              >
-                <Zap className="h-3.5 w-3.5" />
-                Run bench
-              </Button>
-              {benchmarkResult ? (
-                <div className="flex flex-wrap items-center gap-3 text-sm">
-                  <Badge variant="success">
-                    {Math.round(benchmarkResult.ops_per_sec).toLocaleString()}{" "}
-                    ops/sec
-                  </Badge>
-                  <span className="text-[var(--fg-muted)]">
-                    p99 write {benchmarkResult.p99_write_us} µs
-                  </span>
-                  <span className="text-[var(--fg-muted)]">
-                    p99 read {benchmarkResult.p99_read_us} µs
-                  </span>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-3 rounded-md border border-[var(--border)] p-4">
-          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-            <div className="flex flex-col gap-1">
-              <p className="text-xs uppercase tracking-wider text-[var(--fg-muted)]">
-                Scenario runner
-              </p>
-              <p className="text-sm text-[var(--fg-muted)]">
-                Pick a pre-baked workload from the server.
-              </p>
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-              <div className="min-w-[14rem]">
-                <Label htmlFor="scenario-name" className="sr-only">
-                  Scenario
-                </Label>
-                <Select
-                  id="scenario-name"
-                  value={scenarioName}
-                  onChange={setScenarioName}
-                  placeholder="Select scenario…"
-                  options={scenarios.map((scenario) => ({
-                    value: scenario.name,
-                    label: scenario.name,
-                  }))}
-                />
+            <button
+              className="term-btn primary"
+              style={{ alignSelf: "flex-start" }}
+              onClick={() => void onBenchRun({ type: benchType, num_keys: benchKeys, value_size: benchValueSize })}
+            >
+              ⚡ Run Bench
+            </button>
+            {benchmarkResult && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                <span className="sig-badge signal">
+                  {Math.round(benchmarkResult.ops_per_sec).toLocaleString()} ops/sec
+                </span>
+                <span style={{ fontSize: 10, color: "var(--color-text-muted)", fontFamily: "var(--font-mono)" }}>
+                  p99w {benchmarkResult.p99_write_us}µs
+                </span>
+                <span style={{ fontSize: 10, color: "var(--color-text-muted)", fontFamily: "var(--font-mono)" }}>
+                  p99r {benchmarkResult.p99_read_us}µs
+                </span>
               </div>
-              <Button
-                size="sm"
-                disabled={!scenarioName}
-                onClick={() => void onScenarioRun(scenarioName)}
-              >
-                <Play className="h-3.5 w-3.5" />
-                Run scenario
-              </Button>
-            </div>
+            )}
           </div>
-        </div>
 
-        <div className="flex flex-col gap-3 rounded-md border border-[var(--border)] p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex flex-col gap-1">
-              <p className="text-xs uppercase tracking-wider text-[var(--fg-muted)]">
-                Lifecycle guardrail
-              </p>
-              <h4 className="text-sm font-semibold">
-                Remote close behaviour
-              </h4>
-            </div>
-            <Dialog open={closeDialogOpen} onOpenChange={setCloseDialogOpen}>
-              <DialogTrigger asChild>
-                <Button variant="ghost" size="sm">
-                  <Power className="h-3.5 w-3.5" />
-                  Attempt close
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Attempt a remote close?</DialogTitle>
-                  <DialogDescription>
-                    The /close endpoint is reserved for local lifecycle
-                    management. Remote callers will receive a 403 with the
-                    reason below.
-                  </DialogDescription>
-                </DialogHeader>
-                <DialogFooter className="gap-2">
-                  <Button
-                    variant="ghost"
-                    onClick={() => setCloseDialogOpen(false)}
+          {/* Scenario runner */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div className="kv-label" style={{ marginBottom: 2 }}>Scenario Runner</div>
+            <select
+              className="term-select"
+              value={scenarioName}
+              onChange={(e) => setScenarioName(e.target.value)}
+            >
+              <option value="">Select scenario…</option>
+              {scenarios.map((s) => (
+                <option key={s.name} value={s.name}>{s.name}</option>
+              ))}
+            </select>
+            <button
+              className="term-btn primary"
+              disabled={!scenarioName}
+              onClick={() => void onScenarioRun(scenarioName)}
+              style={{ alignSelf: "flex-start" }}
+            >
+              ▶ Run Scenario
+            </button>
+
+            <hr className="term-divider" />
+
+            {/* Lifecycle guardrail */}
+            <div className="kv-label" style={{ marginBottom: 2 }}>Lifecycle Guardrail</div>
+            {!showCloseConfirm ? (
+              <button
+                className="term-btn ghost"
+                style={{ padding: "4px 10px", fontSize: 10, alignSelf: "flex-start" }}
+                onClick={() => setShowCloseConfirm(true)}
+              >
+                ⏻ Attempt Close
+              </button>
+            ) : (
+              <div style={{
+                background: "rgba(255,60,94,0.08)", border: "1px solid rgba(255,60,94,0.25)",
+                borderRadius: 2, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 6,
+              }}>
+                <span style={{ fontSize: 10, color: "var(--color-crimson)", fontFamily: "var(--font-mono)" }}>
+                  /close is reserved for local lifecycle — remote callers get 403.
+                </span>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    className="term-btn ghost"
+                    style={{ padding: "3px 8px", fontSize: 10 }}
+                    onClick={() => setShowCloseConfirm(false)}
                   >
                     Cancel
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    onClick={() => {
-                      setCloseDialogOpen(false);
-                      void onCloseAttempt();
-                    }}
+                  </button>
+                  <button
+                    className="term-btn danger-ghost"
+                    style={{ padding: "3px 8px", fontSize: 10 }}
+                    onClick={() => { setShowCloseConfirm(false); void onCloseAttempt(); }}
                   >
-                    Send anyway
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+                    Send Anyway
+                  </button>
+                </div>
+              </div>
+            )}
+            {closeMessage && (
+              <p style={{ fontSize: 10, color: "var(--color-text-muted)", fontFamily: "var(--font-mono)", marginTop: 2 }}>
+                {closeMessage}
+              </p>
+            )}
           </div>
-          <p className="text-sm text-[var(--fg-muted)]">
-            {closeMessage ??
-              "The server now rejects remote lifecycle shutdown explicitly instead of pretending to close."}
-          </p>
         </div>
 
-        <div className="flex flex-col gap-2">
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--fg-muted)]">
-            Operations feed
-          </h4>
-          {opsFeed.length > 0 ? (
-            <ul className="flex flex-col gap-1.5">
-              {opsFeed.map((entry) => (
-                <li
-                  key={entry.id}
-                  className="flex items-center gap-2 text-sm"
-                >
-                  <Badge variant={toneToVariant(entry.tone)}>
-                    {entry.label}
-                  </Badge>
-                  {entry.detail ? (
-                    <span className="text-[var(--fg-muted)]">{entry.detail}</span>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+        <hr className="term-divider" />
+
+        {/* Operations feed */}
+        <div>
+          <div className="kv-label" style={{ marginBottom: 5 }}>Operations Feed</div>
+          {opsFeed.length === 0 ? (
+            <p style={{ fontSize: 11, color: "var(--color-text-dim)" }}>Scenario and benchmark results will appear here.</p>
           ) : (
-            <p className="text-sm text-[var(--fg-subtle)]">
-              Scenario and benchmark results will appear here.
-            </p>
+            <div style={{ maxHeight: 110, overflowY: "auto" }}>
+              {opsFeed.map((entry) => (
+                <div key={entry.id} className="feed-entry animate-slide-in">
+                  <span className={feedTagFromTone(entry.tone)}>{entry.label}</span>
+                  {entry.detail && <span className="feed-detail">{entry.detail}</span>}
+                </div>
+              ))}
+            </div>
           )}
         </div>
-      </CardContent>
-    </Card>
+
+      </div>
+    </div>
   );
 }

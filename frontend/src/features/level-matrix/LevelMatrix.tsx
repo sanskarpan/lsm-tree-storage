@@ -1,184 +1,168 @@
 import * as React from "react";
-import { RefreshCw } from "lucide-react";
+import { useDashboardStore } from "../../store/dashboard-store";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { DataTable } from "@/components/ui/data-table";
-import { Progress } from "@/components/ui/progress";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import type { CompactionLevelStat, LevelInfo, MemtableSnapshotResponse } from "../../types";
-
-type LevelMatrixProps = {
-  levels: LevelInfo[];
-  memtable: MemtableSnapshotResponse | null;
-  compactionStats: CompactionLevelStat[];
-  onRefresh: () => Promise<void>;
-};
-
-function bytes(value: number): string {
+function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function levelTone(level: number, fillPct: number): "default" | "warning" | "danger" {
-  if (level === 0 && fillPct > 80) return "danger";
-  if (fillPct > 90) return "danger";
-  if (fillPct > 70) return "warning";
-  return "default";
-}
+export function LevelMatrix() {
+  const levels          = useDashboardStore((s) => s.levels);
+  const memtable        = useDashboardStore((s) => s.memtable);
+  const compactionStats = useDashboardStore((s) => s.compactionStats);
+  const onRefresh       = useDashboardStore((s) => s.refreshSnapshot);
+  const [refreshing, setRefreshing] = React.useState(false);
 
-export function LevelMatrix({ levels, memtable, compactionStats, onRefresh }: LevelMatrixProps) {
   const maxLevelBytes = Math.max(...levels.map((l) => l.total_size), 1);
 
+  async function handleRefresh() {
+    setRefreshing(true);
+    try { await onRefresh(); }
+    finally { setRefreshing(false); }
+  }
+
   return (
-    <TooltipProvider delayDuration={150}>
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
-        <div className="flex flex-col gap-1">
-          <CardTitle>Level matrix</CardTitle>
-          <CardDescription>Topology</CardDescription>
+    <div className="panel" style={{ display: "flex", flexDirection: "column" }}>
+      <div className="panel-header">
+        <div>
+          <div className="panel-title">Level Matrix</div>
+          <div className="panel-subtitle">Topology</div>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => void onRefresh()}
-          aria-label="Refresh level snapshot"
+        <button
+          className="term-btn ghost"
+          style={{ padding: "4px 10px", fontSize: 10 }}
+          onClick={() => void handleRefresh()}
+          disabled={refreshing}
         >
-          <RefreshCw className="h-3.5 w-3.5" />
-          Refresh
-        </Button>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-5">
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-          {levels.map((level) => {
-            const fill = (level.total_size / maxLevelBytes) * 100;
-            return (
-              <div
-                key={level.level}
-                className="flex flex-col gap-2 rounded-md border border-[var(--border)] p-3"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold">L{level.level}</span>
-                  <Badge variant="secondary">
-                    {level.num_files} {level.num_files === 1 ? "file" : "files"}
-                  </Badge>
-                </div>
-                <Progress
-                  value={fill}
-                  tone={levelTone(level.level, fill)}
-                  label={`Level ${level.level} size`}
-                />
-                <p className="font-mono text-xs text-[var(--fg-muted)]">
-                  {bytes(level.total_size)}
-                </p>
-                <div className="flex flex-wrap gap-1">
-                  {level.files.length > 0 ? (
-                    level.files.slice(0, 12).map((file) => (
-                      <Tooltip key={file.file_id}>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            className="inline-flex items-center gap-1 rounded border border-[var(--border)] bg-[var(--bg-sunken)] px-1.5 py-0.5 text-[10px] font-mono hover:bg-[var(--muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
-                          >
-                            #{file.file_id}
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          #{file.file_id} · {file.first_key} → {file.last_key} ·{" "}
-                          {file.num_keys.toLocaleString()} keys
-                        </TooltipContent>
-                      </Tooltip>
-                    ))
-                  ) : (
-                    <span className="text-xs text-[var(--fg-subtle)]">No files</span>
-                  )}
-                  {level.files.length > 12 ? (
-                    <span className="text-[10px] text-[var(--fg-subtle)]">
-                      +{level.files.length - 12} more
+          {refreshing ? "..." : "↻ Refresh"}
+        </button>
+      </div>
+      <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+        {/* LSM pyramid bars */}
+        {levels.length === 0 ? (
+          <p style={{ fontSize: 11, color: "var(--color-text-dim)" }}>No level data yet.</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {levels.map((level) => {
+              const fillPct = level.total_size / maxLevelBytes;
+              const barClass = fillPct > 0.8 ? "danger" : fillPct > 0.6 ? "warning" : "ok";
+              return (
+                <div key={level.level} style={{ marginBottom: 2 }}>
+                  {/* Level label + stats row */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <span className="sig-badge info" style={{ minWidth: 28, justifyContent: "center" }}>
+                      L{level.level}
                     </span>
-                  ) : null}
+                    <span style={{ fontSize: 10, color: "var(--color-text-muted)", fontFamily: "var(--font-mono)" }}>
+                      {level.num_files} file{level.num_files !== 1 ? "s" : ""} · {formatBytes(level.total_size)}
+                    </span>
+                    <span style={{
+                      marginLeft: "auto", fontSize: 10, fontFamily: "var(--font-mono)",
+                      color: fillPct > 0.8 ? "var(--color-crimson)" : fillPct > 0.6 ? "var(--color-amber)" : "var(--color-signal)",
+                    }}>
+                      {(fillPct * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                  {/* Proportional bar */}
+                  <div className="level-bar-track">
+                    <div
+                      className={`level-bar-fill ${barClass}`}
+                      style={{ width: `${(fillPct * 100).toFixed(1)}%` }}
+                    />
+                  </div>
+                  {/* File chips for L0 */}
+                  {level.level === 0 && level.files.length > 0 && (
+                    <div style={{ marginTop: 5, display: "flex", flexWrap: "wrap", gap: 3 }}>
+                      {level.files.slice(0, 16).map((f) => (
+                        <span key={f.file_id} style={{
+                          fontSize: 9, background: "var(--color-surface-2)",
+                          border: "1px solid var(--color-border-dim)", borderRadius: 1,
+                          padding: "1px 4px", fontFamily: "var(--font-mono)",
+                          color: "var(--color-text-muted)",
+                        }}>
+                          #{f.file_id}
+                        </span>
+                      ))}
+                      {level.files.length > 16 && (
+                        <span style={{ fontSize: 9, color: "var(--color-text-dim)" }}>
+                          +{level.files.length - 16}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
 
-        <DataTable
-          aria-label="Compaction balance by level"
-          searchPlaceholder="Filter levels…"
-          columns={[
-            {
-              accessorKey: "level",
-              header: "Level",
-              size: 100,
-              cell: (info) => (
-                <Badge variant="info">L{info.getValue<number>()}</Badge>
-              ),
-            },
-            {
-              accessorKey: "total_size",
-              header: "Size",
-              size: 120,
-              cell: (info) => (
-                <span className="font-mono text-xs">
-                  {bytes(info.getValue<number>())}
-                </span>
-              ),
-            },
-            {
-              accessorKey: "level",
-              header: "Fill",
-              size: 200,
-              cell: (info) => {
-                const fill = (info.getValue<number>() / maxLevelBytes) * 100;
-                return <Progress value={fill} label={`Level ${info.getValue<number>()} fill`} />;
-              },
-              enableSorting: false,
-            },
-          ]}
-          data={compactionStats}
-        />
+        <hr className="term-divider" />
 
-        <div className="flex flex-col gap-2">
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--fg-muted)]">
-            Memtable ownership
-          </h4>
-          <div className="flex flex-col gap-1.5 text-sm">
-            <div className="flex items-center gap-2">
-              <Badge variant="success">active</Badge>
-              <span className="font-mono text-xs">
-                log #{memtable?.active_log_number ?? "?"}
+        {/* Memtable section */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div className="kv-label">Memtable Ownership</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="sig-badge signal">active</span>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-text)" }}>
+              log #{memtable?.active_log_number ?? "?"}
+            </span>
+            <span style={{ fontSize: 10, color: "var(--color-text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }}>
+              {memtable?.active_wal_path ?? "unavailable"}
+            </span>
+          </div>
+          {(memtable?.immutables ?? []).map((imm) => (
+            <div key={imm.log_number} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="sig-badge warn">immutable</span>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-amber)" }}>
+                log #{imm.log_number} · {imm.table.entries.length} rows
               </span>
-              <span className="text-[var(--fg-muted)]">
-                {memtable?.active_wal_path ?? "unavailable"}
+              <span style={{ fontSize: 10, color: "var(--color-text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 160 }}>
+                {imm.wal_path}
               </span>
             </div>
-            {memtable?.immutables.map((immutable) => (
-              <div
-                key={immutable.log_number}
-                className="flex items-center gap-2"
-              >
-                <Badge variant="warning">immutable</Badge>
-                <span className="font-mono text-xs">
-                  log #{immutable.log_number} · {immutable.table.entries.length} rows
-                </span>
-                <span className="truncate text-[var(--fg-muted)]">
-                  {immutable.wal_path}
-                </span>
-              </div>
-            ))}
-          </div>
+          ))}
+          {(memtable?.immutables.length ?? 0) === 0 && (
+            <span style={{ fontSize: 10, color: "var(--color-text-dim)" }}>No immutables queued.</span>
+          )}
         </div>
-      </CardContent>
-    </Card>
-    </TooltipProvider>
+
+        {/* Compaction stats table */}
+        {compactionStats.length > 0 && (
+          <>
+            <hr className="term-divider" />
+            <div>
+              <div className="kv-label" style={{ marginBottom: 6 }}>Compaction Balance</div>
+              <table className="term-table">
+                <thead>
+                  <tr><th>Level</th><th>Files</th><th>Size</th><th>Fill</th></tr>
+                </thead>
+                <tbody>
+                  {compactionStats.map((item) => {
+                    const maxStat = Math.max(...compactionStats.map((x) => x.total_size), 1);
+                    const pct = (item.total_size / maxStat) * 100;
+                    const barColor = pct > 85 ? "var(--color-crimson)" : pct > 65 ? "var(--color-amber)" : "var(--color-signal)";
+                    return (
+                      <tr key={item.level}>
+                        <td><span className="sig-badge info">L{item.level}</span></td>
+                        <td style={{ color: "var(--color-text-muted)" }}>{item.num_files}</td>
+                        <td>{formatBytes(item.total_size)}</td>
+                        <td style={{ width: 80 }}>
+                          <div className="term-progress-track" style={{ width: 60 }}>
+                            <div className="term-progress-fill" style={{ width: `${pct.toFixed(1)}%`, background: barColor }} />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+      </div>
+    </div>
   );
 }
