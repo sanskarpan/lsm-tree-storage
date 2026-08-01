@@ -12,8 +12,33 @@ This project covers the complete LSM write and read paths, three compaction stra
 
 ---
 
+## Dashboard
+
+<p align="center">
+  <img width="860" src="docs/assets/dashboard-overview.png" alt="LSM Engine Control Room — dashboard overview" />
+</p>
+
+The **Mission Control Terminal** dashboard delivers a live operations view of the running engine. Seven panels cover the full LSM lifecycle:
+
+<p align="center">
+  <img width="860" src="docs/assets/dashboard-full.png" alt="LSM Engine — all 7 dashboard panels" />
+</p>
+
+| Panel | Purpose |
+|---|---|
+| **Command Deck** | PUT / DEL key-value ops, live memtable fill bar, WAL activity table, session write feed |
+| **Level Matrix** | Proportional LSM level pyramid — file count, byte fill, L0 SSTable chips, memtable ownership |
+| **Bloom Telemetry** | Per-SSTable filter stats, FPR estimates, bits-per-key |
+| **Query Inspector** | Key read-path trace: memtable hit → Bloom check → SSTable seek |
+| **Compaction Studio** | Strategy toggle (LCS / STCS / TWCS), level fill bars, live compaction feed |
+| **Stress Profile** | Animated ring gauges + sparklines for Write / Read / Space amplification |
+| **Operations Lab** | Benchmark runner, scenario executor, lifecycle guardrail |
+
+---
+
 ## Table of Contents
 
+- [Dashboard](#dashboard)
 - [Features](#features)
 - [Requirements](#requirements)
 - [Quick Start](#quick-start)
