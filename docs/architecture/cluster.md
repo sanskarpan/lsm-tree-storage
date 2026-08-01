@@ -6,23 +6,26 @@ The cluster layer (`internal/cluster/`) wraps the local LSM engine in a replicat
 
 ## Architecture
 
-```text
-client write
-     │
-     ▼
-cluster.Node.Put()
-     │
-     ├─ StandaloneNode (internal/cluster/standalone.go)
-     │    └── direct call to LSMEngine.Put()
-     │
-     └─ RaftNode (internal/cluster/raft_node.go)
-          └── append logical command to Raft log
-               │
-               ▼ quorum commit
-          FSM.Apply(command)
-               │
-               ▼
-          LSMEngine.Put() (local engine on each node)
+```mermaid
+flowchart TD
+    CW["Client write"]
+    CNP["cluster.Node.Put()"]
+    SN["StandaloneNode\n(internal/cluster/standalone.go)"]
+    SNE["LSMEngine.Put()\n(direct call)"]
+    RN["RaftNode\n(internal/cluster/raft_node.go)"]
+    RL["Raft log\n(append logical command)"]
+    QC["Quorum commit"]
+    FSM["FSM.Apply(command)"]
+    LE["LSMEngine.Put()\n(local engine on each node)"]
+
+    CW --> CNP
+    CNP --> SN
+    CNP --> RN
+    SN --> SNE
+    RN --> RL
+    RL -->|"quorum commit"| QC
+    QC --> FSM
+    FSM --> LE
 ```
 
 Raft does **not** replicate SSTable files. Each node runs its own independent LSM engine. The consensus log replicates logical operations (`Put`, `Delete`, `WriteBatch`). SSTable layout, flush timing, block cache state, and compaction scheduling may differ between nodes as long as the logical key-value state converges.
@@ -39,6 +42,24 @@ Raft does **not** replicate SSTable files. Each node runs its own independent LS
 | 4 | Log entry replicates to quorum of peers |
 | 5 | Once committed, FSM applies command to local LSM on each node |
 | 6 | Leader replies success after local apply completes (within `CLUSTER_APPLY_TIMEOUT`) |
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant F as Follower
+    participant L as Leader
+    participant R as Raft Log
+    participant E as Local LSM
+
+    C->>F: Write request
+    F-->>C: 409 Conflict (leader addr)
+    C->>L: Write request
+    L->>R: AppendEntries (replicate)
+    R-->>L: Quorum committed
+    L->>E: Apply(Put/Delete/Batch)
+    E-->>L: Applied
+    L-->>C: 200 OK
+```
 
 ---
 

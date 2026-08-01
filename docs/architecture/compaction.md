@@ -34,6 +34,17 @@ LCS maintains strict per-level size limits and non-overlapping key ranges at L1 
 
 Size multiplier per level: `LevelSizeMultiplier` (default 10). Base level size derives from `SSTMaxSize` (default 64 MB).
 
+```mermaid
+graph LR
+    L0["L0\n(overlapping SSTables\ndirect from flushes)"] -->|"compact"| L1
+    L1["L1\n10 MB\nnon-overlapping"] -->|"compact"| L2
+    L2["L2\n100 MB"] -->|"compact"| L3
+    L3["L3\n1 GB"] -->|"compact"| L4
+    L4["L4\n10 GB"] -->|"compact"| L5
+    L5["L5\n100 GB"] -->|"compact"| L6
+    L6["L6\n1 TB"]
+```
+
 ### Trigger
 
 - Compaction begins when the number of L0 files reaches `Level0FileNumCompactionTrigger` (default 4).

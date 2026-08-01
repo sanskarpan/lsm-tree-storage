@@ -2,59 +2,38 @@
 
 ## System diagram
 
-```text
-                         ┌─────────────────┐
-                         │  Browser / CLI  │
-                         └────────┬────────┘
-                                  │ HTTP / WebSocket
-                         ┌────────▼────────┐
-                         │  Elysia BFF     │  :3001 (Bun/TypeScript)
-                         │  frontend/      │  proxies REST + WS
-                         └────────┬────────┘
-                                  │ HTTP :8080
-                         ┌────────▼────────────────────────────────┐
-                         │  Go HTTP Gateway  (gateway/rest.go)     │
-                         │  Bearer auth · rate limit · CORS · TLS  │
-                         └────────┬────────────────────────────────┘
-                                  │
-                         ┌────────▼────────────────────────────────┐
-                         │  cluster.Node  (internal/cluster/)      │
-                         │  StandaloneNode  │  RaftNode            │
-                         └────────┬────────────────────────────────┘
-                                  │
-                  ┌───────────────▼───────────────────────────────┐
-                  │               LSMEngine                        │
-                  │  (internal/engine/engine.go)                   │
-                  │                                                │
-                  │  ┌──────────┐  ┌─────────────────────────┐   │
-                  │  │   WAL    │  │  MemTable (skip list)   │   │
-                  │  │wal/wal.go│  │  memtable/memtable.go   │   │
-                  │  └──────────┘  └────────────┬────────────┘   │
-                  │                             │ flush           │
-                  │            ┌────────────────▼────────────┐   │
-                  │            │  ImmutableQueue              │   │
-                  │            │  []MemTable (engine/flush.go)│   │
-                  │            └────────────────┬────────────┘   │
-                  │                             │ FlushWorker     │
-                  │            ┌────────────────▼────────────┐   │
-                  │            │  L0 SSTables (overlapping)   │   │
-                  │            └────────────────┬────────────┘   │
-                  │                             │ Compactor       │
-                  │            ┌────────────────▼────────────┐   │
-                  │            │  L1 – L6 SSTables            │   │
-                  │            │  (non-overlapping per level) │   │
-                  │            └─────────────────────────────┘   │
-                  │                                                │
-                  │  ┌──────────────┐  ┌──────────────────────┐  │
-                  │  │  BlockCache  │  │  BloomFilterRegistry │  │
-                  │  │  cache/lru.go│  │  per-SSTable, memory │  │
-                  │  └──────────────┘  └──────────────────────┘  │
-                  │                                                │
-                  │  ┌──────────────┐  ┌──────────────────────┐  │
-                  │  │   MANIFEST   │  │     EventBus         │  │
-                  │  │manifest/     │  │  events/bus.go → WS  │  │
-                  │  └──────────────┘  └──────────────────────┘  │
-                  └───────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    Client["Browser / CLI"]
+    BFF["Elysia BFF\n(port 3001, Bun/TypeScript)\nfrontend/ — proxies REST + WS"]
+    GW["Go HTTP Gateway\n(gateway/rest.go)\nBearer auth · rate limit · CORS · TLS"]
+    CN["cluster.Node\n(internal/cluster/)\nStandaloneNode | RaftNode"]
+    Engine["LSMEngine\n(internal/engine/engine.go)"]
+    WAL["WAL\n(wal/wal.go)\nappend-only, CRC32, 32 KB blocks"]
+    Mem["MemTable\n(skip list)\nmemtable/memtable.go"]
+    Imm["ImmutableQueue\n([]MemTable)\nengine/flush.go"]
+    L0["L0 SSTables\n(overlapping)"]
+    L16["L1–L6 SSTables\n(non-overlapping per level)"]
+    BC["BlockCache\n(cache/lru.go)\nLRU, data + index blocks"]
+    BF["BloomFilterRegistry\nper-SSTable, in-memory"]
+    MF["MANIFEST\n(manifest/)\nappend-only VersionEdit log"]
+    EB["EventBus\n(events/bus.go)\n→ WebSocket → dashboard"]
+    TC["TableCache\nLRU, bounded file descriptors"]
+
+    Client -->|"HTTP / WebSocket"| BFF
+    BFF -->|"HTTP :8080"| GW
+    GW --> CN
+    CN --> Engine
+    Engine --> WAL
+    Engine --> Mem
+    Mem -->|"flush"| Imm
+    Imm -->|"FlushWorker"| L0
+    L0 -->|"Compactor"| L16
+    Engine --> BC
+    Engine --> BF
+    Engine --> MF
+    Engine --> EB
+    Engine --> TC
 ```
 
 ---

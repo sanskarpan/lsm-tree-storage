@@ -183,7 +183,7 @@ See [docs/operations.md](docs/operations.md) for the environment matrix, backup/
 
 ## Project Structure
 
-```
+```text
 lsm-engine/
 ├── cmd/server/main.go              # Entry point: opens engine, registers routes, serves HTTP
 ├── internal/
@@ -383,56 +383,73 @@ cluster:
 
 ## Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         LSM Engine                                  │
-│                                                                     │
-│  Write Path:                                                        │
-│                                                                     │
-│  Client PUT ──► WAL (append + fsync) ──► MemTable (skip list)      │
-│                                              │                      │
-│                                     [MemTable full]                 │
-│                                              │                      │
-│                                              ▼                      │
-│                                    Immutable MemTable Queue         │
-│                                              │                      │
-│                                    [FlushWorker goroutine]          │
-│                                              │                      │
-│                                              ▼                      │
-│                                         L0 SSTable                 │
-│                                              │                      │
-│                                  [L0 threshold reached]             │
-│                                              │                      │
-│                                   [Compactor goroutine]             │
-│                                              │                      │
-│                         L1 SSTable ◄─────────┘                     │
-│                         L2 SSTable ◄── compaction cascades          │
-│                         ...                                         │
-│                         L6 SSTable  (max size = 10^6 × L1)         │
-│                                                                     │
-│  Read Path:                                                         │
-│                                                                     │
-│  Client GET ──► MemTable                                            │
-│                    │ not found                                      │
-│                    ▼                                                │
-│             Immutable MemTables (newest → oldest)                  │
-│                    │ not found                                      │
-│                    ▼                                                │
-│             L0 SSTables (ALL checked, newest → oldest)             │
-│             [Bloom filter short-circuit on each]                   │
-│                    │ not found                                      │
-│                    ▼                                                │
-│             L1 → L6  (binary search by key range → 1 SSTable)     │
-│             [Bloom filter check → data block lookup]               │
-│                    │                                                │
-│                    ▼                                                │
-│             BlockCache (LRU) ──► disk read if miss                 │
-└─────────────────────────────────────────────────────────────────────┘
+### System components
 
-Supporting Components:
-  EventBus ──► WebSocket ──► Frontend Dashboard
-  MANIFEST ── tracks SSTable inventory (append-only VersionEdit log)
-  BloomFilterRegistry ── per-SSTable in-memory Bloom filters
+```mermaid
+flowchart LR
+    subgraph Frontend
+        Browser["Browser\n(React + Vite)"]
+        BFF["Elysia BFF\n:3001"]
+    end
+    subgraph Backend["Go Backend :8080"]
+        GW["REST Gateway"]
+        subgraph Engine["LSMEngine"]
+            WAL["WAL"]
+            Mem["MemTable"]
+            SST["SSTables\n(L0–L6)"]
+            Raft["Raft\n(clustered mode)"]
+        end
+    end
+    Browser <-->|"HTTP/WS"| BFF
+    BFF <-->|"HTTP/WS"| GW
+    GW --> Engine
+```
+
+Supporting components: EventBus → WebSocket → Frontend Dashboard; MANIFEST tracks SSTable inventory (append-only VersionEdit log); BloomFilterRegistry holds per-SSTable in-memory Bloom filters.
+
+### Write path
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant W as WAL
+    participant M as MemTable
+    participant I as ImmutableQueue
+    participant F as FlushWorker
+    participant S as SSTable (L0)
+
+    C->>W: Append entry (CRC32, seqNo)
+    W-->>C: fsync (SyncWAL=true)
+    C->>M: Insert (skip list)
+    Note over M: size >= MemTableSize?
+    M->>I: Rotate to immutable
+    F->>I: Pick immutable
+    F->>S: Write SSTable
+    F->>W: Delete WAL segment
+```
+
+### Read path
+
+```mermaid
+flowchart TD
+    Get["Get(key, readSeqNo)"]
+    Mem["MemTable\n(most recent)"]
+    Imm["ImmutableMemTables\n(newest first)"]
+    L0["L0 SSTables\n(all checked, newest first)"]
+    Bloom["Bloom Filter check\n(per SSTable)"]
+    L1P["L1–L6 SSTables\n(binary search by key range)"]
+    Cache["Block Cache\n(LRU, data + index blocks)"]
+    Disk["Disk read"]
+    NotFound["KeyNotFound"]
+
+    Get --> Mem
+    Mem -->|"miss"| Imm
+    Imm -->|"miss"| L0
+    L0 --> Bloom
+    Bloom -->|"maybe"| Cache
+    Bloom -->|"miss"| L1P
+    Cache -->|"miss"| Disk
+    L1P -->|"not found"| NotFound
 ```
 
 ---
@@ -441,7 +458,7 @@ Supporting Components:
 
 The Write-Ahead Log uses the same 32KB block format as LevelDB/RocksDB. Every write is CRC32-protected and fsync'd (when `sync_wal: true`) before the engine acknowledges success.
 
-```
+```text
 WAL File on Disk
 ┌──────────────────────────────────┬──────────────────────────────────┬─────
 │         Block 0 (32768 bytes)    │         Block 1 (32768 bytes)    │ ...
@@ -511,7 +528,7 @@ Key properties:
 
 SSTables are immutable files written during a MemTable flush or compaction. The format is modeled after LevelDB's, simplified for educational clarity.
 
-```
+```text
 SSTable File (.sst)
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                                                                         │
@@ -606,7 +623,7 @@ The compaction strategy can be changed at runtime via the `/compaction/style` en
 
 LCS maintains strict level size limits with non-overlapping key ranges at L1 and above.
 
-```
+```text
 Level sizes:
   L0:  0–4 SSTables (key ranges may overlap; direct from flushes)
   L1:  max 10 MB   (non-overlapping; sorted by key range)
@@ -638,7 +655,7 @@ Algorithm:
 
 STCS groups SSTables of similar size into tiers and merges them together.
 
-```
+```text
 Tier grouping: SSTables within [avg * 0.5, avg * 1.5] size form a tier.
 Trigger: A tier accumulates >= minThreshold (default 4) members.
 
@@ -660,7 +677,7 @@ Algorithm:
 
 TWCS is designed for time-series data. SSTables from the same time window are compacted using STCS within that window; windows never mix.
 
-```
+```text
 Parameters:
   windowSize: configurable (e.g., "1h", "24h")
   CreatedAt:  SSTableMeta.CreatedAt unix nanoseconds used for bucketing
@@ -806,7 +823,7 @@ The Go backend serves all endpoints directly on `:8080`. The Elysia BFF at `:300
 
 On `engine.Open()`, the following recovery procedure runs automatically:
 
-```
+```text
 1. Read CURRENT file → find active MANIFEST filename
 2. Replay MANIFEST VersionEdits → reconstruct Version
    (all SSTable metadata for all levels)
