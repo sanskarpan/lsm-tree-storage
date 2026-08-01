@@ -1,0 +1,90 @@
+site_name: LSM-Tree Storage Engine
+site_url: https://sanskarpan.github.io/lsm-tree-storage/
+site_description: >-
+  A production-hardened Log-Structured Merge-Tree storage engine in Go,
+  with Raft replication, streaming scan, LRU table cache, and a live React dashboard.
+site_author: Sanskar Pandey
+repo_name: sanskarpan/lsm-tree-storage
+repo_url: https://github.com/sanskarpan/lsm-tree-storage
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - content.code.copy
+    - content.code.annotate
+    - search.suggest
+    - search.highlight
+    - toc.follow
+  palette:
+    - scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+markdown_extensions:
+  - admonition
+  - tables
+  - attr_list
+  - def_list
+  - footnotes
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Architecture:
+      - Overview: architecture/overview.md
+      - Write-Ahead Log: architecture/wal.md
+      - SSTable Format: architecture/sstable.md
+      - MANIFEST: architecture/manifest.md
+      - Compaction Strategies: architecture/compaction.md
+      - Raft Cluster: architecture/cluster.md
+  - Guides:
+      - Quick Start: guides/quick-start.md
+      - Configuration: guides/configuration.md
+      - Deployment: guides/deployment.md
+      - Backup & Recovery: guides/backup-recovery.md
+  - API Reference: api/rest.md
+  - Security: security/overview.md
+  - Observability:
+      - Metrics: observability/metrics.md
+      - Alerts & SLOs: observability/alerts.md
+      - Distributed Tracing: observability/tracing.md
+      - Grafana Dashboard: observability/grafana.md
+  - Design Decisions:
+      - ADR Index: adr/index.md
+      - ADR-0001 LSM over B-Tree: adr/0001-lsm-over-btree.md
+      - ADR-0002 Replicate Operations: adr/0002-raft-replication.md
+      - ADR-0003 Write-Before-Disk: adr/0003-write-before-disk.md
+      - ADR-0004 SeqNo Persistence: adr/0004-seqno-persistence.md
+  - Benchmarks: benchmarks.md
+  - Contributing: contributing.md

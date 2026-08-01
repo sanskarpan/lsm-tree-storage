@@ -1,5 +1,11 @@
 # LSM-Tree Storage Engine
 
+[![Documentation](https://img.shields.io/badge/docs-online-teal?style=flat-square)](https://sanskarpan.github.io/lsm-tree-storage/)
+[![CI](https://github.com/sanskarpan/lsm-tree-storage/actions/workflows/ci.yml/badge.svg)](https://github.com/sanskarpan/lsm-tree-storage/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/sanskarpan/lsm-tree-storage?style=flat-square)](https://github.com/sanskarpan/lsm-tree-storage/releases/latest)
+
+📖 **[Full documentation →](https://sanskarpan.github.io/lsm-tree-storage/)**
+
 An educational, from-scratch implementation of a **Log-Structured Merge-Tree (LSM-Tree)** database storage engine written in Go, with a real-time 7-panel visualization dashboard built on React, Vite, Bun, and Elysia.
 
 This project covers the complete LSM write and read paths, three compaction strategies, Bloom filters, block cache, crash recovery, a Raft-backed multi-node replication layer, and a live WebSocket-driven UI — all without any external database dependencies.
@@ -262,6 +268,8 @@ lsm-engine/
 
 Operational procedures, environment variables, probes, backup/restore, and the
 load harness are documented in [docs/operations.md](docs/operations.md).
+
+> Full operations reference: [docs/guides/deployment.md](https://sanskarpan.github.io/lsm-tree-storage/guides/deployment/) and [docs/guides/backup-recovery.md](https://sanskarpan.github.io/lsm-tree-storage/guides/backup-recovery/)
 
 ---
 
