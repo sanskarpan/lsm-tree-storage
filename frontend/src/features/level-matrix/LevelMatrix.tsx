@@ -73,9 +73,9 @@ export function LevelMatrix() {
                     />
                   </div>
                   {/* File chips for L0 */}
-                  {level.level === 0 && level.files.length > 0 && (
+                  {level.level === 0 && (level.files?.length ?? 0) > 0 && (
                     <div style={{ marginTop: 5, display: "flex", flexWrap: "wrap", gap: 3 }}>
-                      {level.files.slice(0, 16).map((f) => (
+                      {(level.files ?? []).slice(0, 16).map((f) => (
                         <span key={f.file_id} style={{
                           fontSize: 9, background: "var(--color-surface-2)",
                           border: "1px solid var(--color-border-dim)", borderRadius: 1,

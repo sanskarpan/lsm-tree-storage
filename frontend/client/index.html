@@ -7,34 +7,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Fira+Code:wght@300;400;500;600&display=swap"
       rel="stylesheet"
     />
-    <script>
-      // FOUC-free theme + density bootstrap. Runs before React mounts and
-      // before the first paint. The legacy styles.css is also imported
-      // from main.tsx so we keep both sources of truth for now (DS #5+).
-      (function () {
-        try {
-          var stored = localStorage.getItem("lsm.theme");
-          var theme =
-            stored === "light" || stored === "dark"
-              ? stored
-              : window.matchMedia("(prefers-color-scheme: dark)").matches
-                ? "dark"
-                : "light";
-          document.documentElement.classList.toggle("dark", theme === "dark");
-
-          var density = localStorage.getItem("lsm.density") || "comfortable";
-          document.documentElement.classList.toggle(
-            "compact",
-            density === "compact",
-          );
-        } catch (_e) {
-          /* localStorage may be unavailable; fall back to defaults */
-        }
-      })();
-    </script>
     <script type="module" src="../src/main.tsx"></script>
   </head>
   <body>

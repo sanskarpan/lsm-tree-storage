@@ -163,7 +163,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
 
       const fileIds: number[] = [];
       for (const level of levelState) {
-        for (const file of level.files) {
+        for (const file of (level.files ?? [])) {
           fileIds.push(file.file_id);
           if (fileIds.length >= 10) break;
         }
@@ -388,7 +388,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
           memtableHits = 1;
         } else {
           const containingLevel = levels.find((level) =>
-            level.files.some((file) => file.first_key <= key && key <= file.last_key),
+            (level.files ?? []).some((file) => file.first_key <= key && key <= file.last_key),
           );
           if (containingLevel) {
             steps.push(`Key falls inside a tracked L${containingLevel.level} SSTable range`);
