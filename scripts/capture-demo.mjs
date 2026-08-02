@@ -7,7 +7,16 @@
  * then hands off to ffmpeg (called by the wrapper shell script).
  */
 
-import { chromium } from '/opt/homebrew/lib/node_modules/playwright/index.mjs';
+// Resolve playwright: prefer local node_modules, fall back to global Homebrew install
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+let playwrightPath;
+try {
+  playwrightPath = require.resolve('playwright');
+} catch {
+  playwrightPath = '/opt/homebrew/lib/node_modules/playwright/index.mjs';
+}
+const { chromium } = await import(playwrightPath);
 import { writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
