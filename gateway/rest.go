@@ -385,7 +385,7 @@ func (h *Handler) checkRole(r *http.Request, required apiRole) bool {
 // writes a 401 response if not. Returns false when the caller should abort.
 func (h *Handler) requireRole(w http.ResponseWriter, r *http.Request, role apiRole) bool {
 	if !h.checkRole(r, role) {
-		w.Header().Set("WWW-Authenticate", `Bearer realm="lsm-engine"`)
+		w.Header().Set("WWW-Authenticate", `Bearer realm="lsm-tree-storage"`)
 		writeJSONError(w, http.StatusUnauthorized, "insufficient permissions")
 		return false
 	}

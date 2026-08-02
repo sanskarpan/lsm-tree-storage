@@ -105,7 +105,7 @@ func (h *WSHub) authorize(r *http.Request) bool {
 // ServeWS upgrades the HTTP connection to WebSocket and registers the client with the hub.
 func (h *WSHub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	if !h.authorize(r) {
-		w.Header().Set("WWW-Authenticate", `Bearer realm="lsm-engine"`)
+		w.Header().Set("WWW-Authenticate", `Bearer realm="lsm-tree-storage"`)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
