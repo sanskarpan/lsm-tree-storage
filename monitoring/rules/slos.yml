@@ -188,7 +188,7 @@ groups:
             5m error ratio: {{ with query "lsm:write_request_errors:ratio_rate5m" }}{{ . | first | value | humanizePercentage }}{{ end }}.
             Both exceed the 14.4× burn rate threshold (1.44% error rate) for the 99.9% write-availability SLO.
             At this rate the entire 30-day error budget will be exhausted in approximately 2 hours.
-          runbook_url: "https://runbooks.example.com/lsm/LSMWriteAvailabilitySLOFastBurn"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-write-availability-slo-fast-burn"
 
       # ── Write Availability SLO (99.9%) — Slow Burn ───────────────────────────
       - alert: LSMWriteAvailabilitySLOSlowBurn
@@ -207,7 +207,7 @@ groups:
             6h error ratio exceeds the 6× burn rate threshold (0.6% error rate) for the
             99.9% write-availability SLO. At this rate the 30-day error budget will be
             exhausted in approximately 5 days.
-          runbook_url: "https://runbooks.example.com/lsm/LSMWriteAvailabilitySLOSlowBurn"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-write-availability-slo-slow-burn"
 
       # ── Read Availability SLO (99.9%) — Fast Burn ────────────────────────────
       - alert: LSMReadAvailabilitySLOFastBurn
@@ -225,7 +225,7 @@ groups:
           description: >
             Both the 1h and 5m read error ratios exceed the 14.4× burn rate threshold
             (1.44%) for the 99.9% read-availability SLO.
-          runbook_url: "https://runbooks.example.com/lsm/LSMReadAvailabilitySLOFastBurn"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-read-availability-slo-fast-burn"
 
       # ── Read Availability SLO (99.9%) — Slow Burn ────────────────────────────
       - alert: LSMReadAvailabilitySLOSlowBurn
@@ -243,7 +243,7 @@ groups:
           description: >
             6h and 30m read error ratios exceed the 6× burn rate threshold (0.6%) for
             the 99.9% read-availability SLO.
-          runbook_url: "https://runbooks.example.com/lsm/LSMReadAvailabilitySLOSlowBurn"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-read-availability-slo-slow-burn"
 
       # ── Write Latency SLO (99% of writes < 100 ms) — Fast Burn ──────────────
       - alert: LSMWriteLatencySLOFastBurn
@@ -262,7 +262,7 @@ groups:
             More than 14.4% of write requests are violating the 100 ms latency SLO
             over both the 1h and 5m windows. The 30-day latency error budget will be
             exhausted in approximately 2 hours.
-          runbook_url: "https://runbooks.example.com/lsm/LSMWriteLatencySLOFastBurn"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-write-latency-slo-fast-burn"
 
       # ── Write Latency SLO (99% of writes < 100 ms) — Slow Burn ──────────────
       - alert: LSMWriteLatencySLOSlowBurn
@@ -280,7 +280,7 @@ groups:
           description: >
             6h and 30m write violation ratios exceed the 6× burn rate threshold (6%)
             for the 99% write-latency SLO (< 100 ms). Budget will be exhausted in ~5 days.
-          runbook_url: "https://runbooks.example.com/lsm/LSMWriteLatencySLOSlowBurn"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-write-latency-slo-slow-burn"
 
       # ── Read Latency SLO (99% of reads < 50 ms) — Fast Burn ─────────────────
       - alert: LSMReadLatencySLOFastBurn
@@ -298,7 +298,7 @@ groups:
           description: >
             More than 14.4% of read requests are violating the 50 ms latency SLO over
             both the 1h and 5m windows.
-          runbook_url: "https://runbooks.example.com/lsm/LSMReadLatencySLOFastBurn"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-read-latency-slo-fast-burn"
 
       # ── Read Latency SLO (99% of reads < 50 ms) — Slow Burn ─────────────────
       - alert: LSMReadLatencySLOSlowBurn
@@ -316,4 +316,4 @@ groups:
           description: >
             6h and 30m read violation ratios exceed the 6× burn rate threshold (6%)
             for the 99% read-latency SLO (< 50 ms). Budget will be exhausted in ~5 days.
-          runbook_url: "https://runbooks.example.com/lsm/LSMReadLatencySLOSlowBurn"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-read-latency-slo-slow-burn"
