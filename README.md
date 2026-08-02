@@ -15,7 +15,7 @@ This project covers the complete LSM write and read paths, three compaction stra
 ## Dashboard
 
 <p align="center">
-  <img width="860" src="docs/assets/demo.gif" alt="LSM Engine Control Room — live demo" />
+  <img width="860" src="docs/assets/demo.gif" alt="LSM-Tree Storage Engine — live demo" />
 </p>
 
 > **[▶ Full-quality MP4](docs/assets/demo.mp4)** — GIF is compressed; the MP4 shows crisp animations.
@@ -23,7 +23,7 @@ This project covers the complete LSM write and read paths, three compaction stra
 The **Mission Control Terminal** dashboard delivers a live operations view of the running engine. Seven panels cover the full LSM lifecycle:
 
 <p align="center">
-  <img width="860" src="docs/assets/dashboard-full.png" alt="LSM Engine — all 7 dashboard panels" />
+  <img width="860" src="docs/assets/dashboard-full.png" alt="LSM-Tree Storage Engine — all 7 dashboard panels" />
 </p>
 
 | Panel | Purpose |
@@ -211,7 +211,7 @@ See [docs/operations.md](docs/operations.md) for the environment matrix, backup/
 ## Project Structure
 
 ```text
-lsm-engine/
+lsm-tree-storage/
 ├── cmd/server/main.go              # Entry point: opens engine, registers routes, serves HTTP
 ├── internal/
 │   ├── wal/
