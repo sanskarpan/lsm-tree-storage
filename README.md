@@ -103,8 +103,8 @@ curl -fsSL https://bun.sh/install | bash
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-org/lsm-engine.git
-cd lsm-engine
+git clone https://github.com/sanskarpan/lsm-tree-storage.git
+cd lsm-tree-storage
 
 # 2. Start the Go backend (loopback on 127.0.0.1:8080 by default)
 make run
