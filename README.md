@@ -15,8 +15,10 @@ This project covers the complete LSM write and read paths, three compaction stra
 ## Dashboard
 
 <p align="center">
-  <img width="860" src="docs/assets/dashboard-overview.png" alt="LSM Engine Control Room — dashboard overview" />
+  <img width="860" src="docs/assets/demo.gif" alt="LSM Engine Control Room — live demo" />
 </p>
+
+> **[▶ Full-quality MP4](docs/assets/demo.mp4)** — GIF is compressed; the MP4 shows crisp animations.
 
 The **Mission Control Terminal** dashboard delivers a live operations view of the running engine. Seven panels cover the full LSM lifecycle:
 
