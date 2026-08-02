@@ -1136,7 +1136,7 @@ export type App = typeof app;
 ## §18 File Structure
 
 ```
-lsm-engine/
+lsm-tree-storage/
 +-- cmd/server/main.go
 +-- internal/
 |   +-- wal/
