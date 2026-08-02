@@ -35,7 +35,7 @@ groups:
           description: >
             Prometheus cannot scrape the LSM backend at {{ $labels.instance }}.
             The service has been down for more than 1 minute.
-          runbook_url: "https://runbooks.example.com/lsm/LSMBackendDown"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-backend-down"
 
       - alert: LSMHighErrorRate
         expr: |
@@ -52,7 +52,7 @@ groups:
           description: >
             {{ $value | humanizePercentage }} of requests returned 5xx over the
             last 5 minutes (threshold: 1%).
-          runbook_url: "https://runbooks.example.com/lsm/LSMHighErrorRate"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-high-error-rate"
 
       - alert: LSMBgErrorActive
         # Requires lsm_bg_error gauge (not yet emitted — add to metrics.go)
@@ -65,7 +65,7 @@ groups:
           description: >
             The engine has set its background error flag. The flush circuit-breaker
             is tripped, which will block further writes. Immediate operator intervention required.
-          runbook_url: "https://runbooks.example.com/lsm/LSMBgErrorActive"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-bg-error-active"
 
   # ── Latency ──────────────────────────────────────────────────────────────────
   - name: lsm.latency
@@ -85,7 +85,7 @@ groups:
             99th-percentile write latency is {{ $value | humanizeDuration }}
             (threshold: 100 ms). Check for L0 compaction stalls, WAL sync delays,
             or memtable pressure.
-          runbook_url: "https://runbooks.example.com/lsm/LSMHighWriteLatencyP99"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-high-write-latency-p99"
 
       - alert: LSMHighReadLatencyP99
         expr: |
@@ -101,7 +101,7 @@ groups:
             99th-percentile read latency is {{ $value | humanizeDuration }}
             (threshold: 50 ms). Check L0 file count, block-cache hit rate,
             and bloom filter effectiveness.
-          runbook_url: "https://runbooks.example.com/lsm/LSMHighReadLatencyP99"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-high-read-latency-p99"
 
   # ── Storage Health ────────────────────────────────────────────────────────────
   - name: lsm.storage
@@ -119,7 +119,7 @@ groups:
           description: >
             There are {{ $value }} L0 SSTable files (warning at 8, compaction trigger
             at 12). Read amplification is growing and write stall risk is elevated.
-          runbook_url: "https://runbooks.example.com/lsm/LSML0FileCountHigh"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-l0-file-count-high"
 
       - alert: LSML0FileCountCritical
         # Requires lsm_engine_l0_sst_files gauge (not yet emitted — add to metrics.go).
@@ -133,7 +133,7 @@ groups:
             There are {{ $value }} L0 SSTable files. The engine will stall writes
             at 12 files (Level0StopWritesTrigger). Manual compaction or throughput
             reduction is required immediately.
-          runbook_url: "https://runbooks.example.com/lsm/LSML0FileCountCritical"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-l0-file-count-critical"
 
       - alert: LSMFlushQueueDeep
         # lsm_engine_immutables = immutable memtables waiting to be flushed to L0.
@@ -147,7 +147,7 @@ groups:
             {{ $value }} immutable memtables are queued for flushing and have been
             accumulating for > 2 minutes. The flush goroutine may be stalled by
             slow disk I/O or compaction backpressure.
-          runbook_url: "https://runbooks.example.com/lsm/LSMFlushQueueDeep"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-flush-queue-deep"
 
       - alert: LSMWALFilesHigh
         expr: lsm_engine_wal_files > 5
@@ -160,7 +160,7 @@ groups:
             There are {{ $value }} WAL files. WAL files are retired when the
             corresponding memtable is flushed; a growing count indicates the flush
             path is not keeping up with ingestion.
-          runbook_url: "https://runbooks.example.com/lsm/LSMWALFilesHigh"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-wal-files-high"
 
       - alert: LSMMemtableSizeHigh
         # Default MemTableSize is 64 MiB (67,108,864 bytes); 80% = 53,687,091 bytes.
@@ -175,7 +175,7 @@ groups:
             Mutable memtable is {{ $value | humanize1024 }}B, exceeding 80% of the
             64 MiB default MemTableSize. A rotation/flush will occur soon; sustained
             pressure can stall writes.
-          runbook_url: "https://runbooks.example.com/lsm/LSMMemtableSizeHigh"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-memtable-size-high"
 
       - alert: LSMImmutableCountHigh
         expr: lsm_engine_immutables > 1
@@ -187,7 +187,7 @@ groups:
           description: >
             {{ $value }} immutable memtables have been present for over 5 minutes.
             The flush goroutine may be blocked. Check disk I/O and L0 file count.
-          runbook_url: "https://runbooks.example.com/lsm/LSMImmutableCountHigh"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-immutable-count-high"
 
   # ── Compaction ───────────────────────────────────────────────────────────────
   - name: lsm.compaction
@@ -207,7 +207,7 @@ groups:
             Total SSTable data is {{ $value | humanize1024 }}B (threshold: ~9.7 GiB).
             Compaction may not be keeping up. Consider increasing compaction concurrency
             or write rate limiting.
-          runbook_url: "https://runbooks.example.com/lsm/LSMCompactionLagging"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-compaction-lagging"
 
       - alert: LSMNoCompactionActivity
         # Fires when no compaction events have been recorded for 30 minutes
@@ -224,7 +224,7 @@ groups:
             No compaction events have occurred in the last 30 minutes, but there are
             {{ $value }} SSTable files. The compaction goroutine may be stalled or
             erroring silently.
-          runbook_url: "https://runbooks.example.com/lsm/LSMNoCompactionActivity"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-no-compaction-activity"
 
   # ── Resources ────────────────────────────────────────────────────────────────
   - name: lsm.resources
@@ -244,7 +244,7 @@ groups:
           description: >
             Total SSTable data is {{ $value | humanize1024 }}B. For real filesystem
             monitoring deploy a node_exporter alongside the backend.
-          runbook_url: "https://runbooks.example.com/lsm/LSMDiskUsageHigh"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-disk-usage-high"
 
       - alert: LSMHighMemoryUsage
         expr: process_resident_memory_bytes{job="lsm-storage"} > 2147483648
@@ -257,4 +257,4 @@ groups:
             Process resident memory is {{ $value | humanize1024 }}B (threshold: 2 GiB).
             Check block-cache size (lsm_cache_entries), memtable footprint, and
             goroutine leak potential (go_goroutines).
-          runbook_url: "https://runbooks.example.com/lsm/LSMHighMemoryUsage"
+          runbook_url: "https://sanskarpan.github.io/lsm-tree-storage/observability/alerts/#lsm-high-memory-usage"
